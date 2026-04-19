@@ -6,10 +6,12 @@ aiosqlite==0.20.0
 alembic==1.13.3
 psycopg[binary]==3.2.3
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.12
 pydantic==2.9.2
 pydantic-settings==2.6.0
+email-validator==2.3.0
 python-dotenv==1.0.1
 chromadb==0.5.11
 sentence-transformers==3.2.1
@@ -22,6 +24,7 @@ cryptography==43.0.3
 google-generativeai==0.8.3
 langchain-google-genai==2.0.7
 ragas==0.2.3
+nltk==3.9.4
 datasets==3.1.0
 pandas==2.2.3
 python-dateutil==2.9.0.post0

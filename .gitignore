@@ -11,9 +11,21 @@ backend/.venv/
 backend/__pycache__/
 backend/**/*.pyc
 backend/.env
+
+# Local database and vector index artifacts (do not commit)
 backend/dev.db
+backend/dev.db-shm
+backend/dev.db-wal
+backend/dev.db-journal
 backend/chroma_db/
 backend/processed_data/parent_chunks.json
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
+**/chroma_db/
 
 # Frontend Node environment and artifacts
 frontend/node_modules/

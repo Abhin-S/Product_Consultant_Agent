@@ -2,22 +2,17 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_user
 from auth.models import User
 from database import get_db
-from evaluation.models import EvaluationLog
+from evaluation.models import AnalysisSession, EvaluationLog
 
 
-router = APIRouter(prefix="/eval", tags=["evaluation-admin"])
-
-
-def _require_admin(user: User) -> None:
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
+router = APIRouter(prefix="/eval", tags=["evaluation"])
 
 
 @router.get("/summary")
@@ -25,8 +20,6 @@ async def get_eval_summary(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    _require_admin(current_user)
-
     totals = await db.execute(
         select(
             func.count(EvaluationLog.id),
@@ -36,6 +29,9 @@ async def get_eval_summary(
             func.avg(EvaluationLog.llm_latency_ms),
             func.avg(EvaluationLog.llm_retry_count),
         )
+        .select_from(EvaluationLog)
+        .join(AnalysisSession, EvaluationLog.session_id == AnalysisSession.id)
+        .where(AnalysisSession.user_id == current_user.id)
     )
     (
         total_sessions,
@@ -47,7 +43,13 @@ async def get_eval_summary(
     ) = totals.one()
 
     ragas_count_q = await db.execute(
-        select(func.count(EvaluationLog.id)).where(EvaluationLog.ragas_eval_status == "completed")
+        select(func.count(EvaluationLog.id))
+        .select_from(EvaluationLog)
+        .join(AnalysisSession, EvaluationLog.session_id == AnalysisSession.id)
+        .where(
+            EvaluationLog.ragas_eval_status == "completed",
+            AnalysisSession.user_id == current_user.id,
+        )
     )
     sessions_with_ragas = int(ragas_count_q.scalar_one() or 0)
 
@@ -58,6 +60,9 @@ async def get_eval_summary(
             func.avg(EvaluationLog.faithfulness),
             func.avg(EvaluationLog.answer_relevance),
         )
+        .select_from(EvaluationLog)
+        .join(AnalysisSession, EvaluationLog.session_id == AnalysisSession.id)
+        .where(AnalysisSession.user_id == current_user.id)
     )
     avg_context_precision, avg_context_recall, avg_faithfulness, avg_answer_relevance = ragas_avgs_q.one()
 
@@ -89,8 +94,6 @@ async def list_eval_sessions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    _require_admin(current_user)
-
     filters = []
     if ragas_eval_status:
         filters.append(EvaluationLog.ragas_eval_status == ragas_eval_status)
@@ -103,14 +106,24 @@ async def list_eval_sessions(
 
     where_clause = and_(*filters) if filters else None
 
-    total_stmt = select(func.count()).select_from(EvaluationLog)
+    total_stmt = (
+        select(func.count())
+        .select_from(EvaluationLog)
+        .join(AnalysisSession, EvaluationLog.session_id == AnalysisSession.id)
+        .where(AnalysisSession.user_id == current_user.id)
+    )
     if where_clause is not None:
         total_stmt = total_stmt.where(where_clause)
 
     total_q = await db.execute(total_stmt)
     total = int(total_q.scalar_one() or 0)
 
-    stmt = select(EvaluationLog).order_by(EvaluationLog.created_at.desc())
+    stmt = (
+        select(EvaluationLog)
+        .join(AnalysisSession, EvaluationLog.session_id == AnalysisSession.id)
+        .where(AnalysisSession.user_id == current_user.id)
+        .order_by(EvaluationLog.created_at.desc())
+    )
     if where_clause is not None:
         stmt = stmt.where(where_clause)
 

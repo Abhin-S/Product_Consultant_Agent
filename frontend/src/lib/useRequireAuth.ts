@@ -1,21 +1,24 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import api from "../lib/axios";
+import api from "./axios";
 
-export default function HomePage() {
+type AuthStatus = "checking" | "authenticated";
+
+export default function useRequireAuth(): AuthStatus {
   const router = useRouter();
+  const [status, setStatus] = useState<AuthStatus>("checking");
 
   useEffect(() => {
     let cancelled = false;
 
-    const redirectBySession = async () => {
+    const checkSession = async () => {
       try {
         await api.get("/auth/me");
         if (!cancelled) {
-          router.replace("/analyze");
+          setStatus("authenticated");
         }
       } catch {
         if (!cancelled) {
@@ -24,12 +27,12 @@ export default function HomePage() {
       }
     };
 
-    redirectBySession();
+    checkSession();
 
     return () => {
       cancelled = true;
     };
   }, [router]);
 
-  return <p className="text-sm text-slate-600">Redirecting...</p>;
+  return status;
 }

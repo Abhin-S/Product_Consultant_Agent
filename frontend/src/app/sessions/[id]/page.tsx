@@ -5,10 +5,12 @@ import { useParams, useRouter } from "next/navigation";
 
 import api from "../../../lib/axios";
 import { SessionDetail } from "../../../lib/types";
+import useRequireAuth from "../../../lib/useRequireAuth";
 
 export default function SessionDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const authStatus = useRequireAuth();
 
   const [session, setSession] = useState<SessionDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,6 +44,10 @@ export default function SessionDetailPage() {
     if (status === "failed") return "Evaluation failed";
     return "Completed";
   }, [session]);
+
+  if (authStatus === "checking") {
+    return <p className="text-sm text-slate-600">Checking authentication...</p>;
+  }
 
   if (loading) {
     return <p>Loading session...</p>;

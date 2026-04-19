@@ -8,6 +8,7 @@ import ExecutionFeedback from "../components/ExecutionFeedback";
 import IdeaInputForm from "../components/IdeaInputForm";
 import InsightDisplay from "../components/InsightDisplay";
 import api from "../../lib/axios";
+import useRequireAuth from "../../lib/useRequireAuth";
 import {
   AnalyzeRequest,
   AnalyzeResponse,
@@ -20,6 +21,7 @@ type AnalyzeUIState = "input" | "loading" | "insights" | "confirm" | "executing"
 
 function AnalyzePageContent() {
   const searchParams = useSearchParams();
+  const authStatus = useRequireAuth();
 
   const [uiState, setUiState] = useState<AnalyzeUIState>("input");
   const [analyzeResponse, setAnalyzeResponse] = useState<AnalyzeResponse | null>(null);
@@ -104,6 +106,10 @@ function AnalyzePageContent() {
       setUiState("confirm");
     }
   };
+
+  if (authStatus === "checking") {
+    return <p className="text-sm text-slate-600">Checking authentication...</p>;
+  }
 
   return (
     <div className="space-y-6">

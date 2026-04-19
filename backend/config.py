@@ -6,8 +6,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     ENVIRONMENT: str = "development"
-    DEFAULT_ADMIN_EMAIL: str = ""
-    DEFAULT_ADMIN_PASSWORD: str = ""
+    AUTH_MODE: str = "google_sso"
 
     # Database
     # Dev example: sqlite+aiosqlite:///./dev.db
@@ -22,6 +21,15 @@ class Settings(BaseSettings):
     # Google AI Studio — Gemma 4
     GOOGLE_API_KEY: str
     GEMMA_MODEL_NAME: str = "gemma-4-it"
+
+    # Google SSO (OAuth)
+    GOOGLE_OAUTH_CLIENT_ID: str = ""
+    GOOGLE_OAUTH_CLIENT_SECRET: str = ""
+    GOOGLE_OAUTH_REDIRECT_URI: str = ""
+    GOOGLE_OAUTH_SCOPES: str = "openid email profile"
+    AUTH_COOKIE_NAME: str = "pcai_access_token"
+    AUTH_COOKIE_SECURE: bool = False
+    AUTH_COOKIE_SAMESITE: str = "lax"
 
     # RAG
     CONFIDENCE_THRESHOLD: float = 0.45

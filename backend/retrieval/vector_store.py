@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import chromadb
 from chromadb.api.models.Collection import Collection
 from chromadb.api.types import Metadata
+from chromadb.config import Settings as ChromaSettings
 
 from config import settings
 
@@ -16,7 +17,13 @@ _collection: Collection | None = None
 def get_client() -> chromadb.PersistentClient:
     global _client
     if _client is None:
-        _client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+        _client = chromadb.PersistentClient(
+            path=settings.CHROMA_DB_PATH,
+            settings=ChromaSettings(
+                anonymized_telemetry=False,
+                chroma_product_telemetry_impl="retrieval.chroma_telemetry.NoOpProductTelemetry",
+            ),
+        )
     return _client
 
 

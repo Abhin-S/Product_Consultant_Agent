@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 
 import api from "../../lib/axios";
 import { Session } from "../../lib/types";
+import useRequireAuth from "../../lib/useRequireAuth";
 
 export default function SessionsPage() {
   const router = useRouter();
+  const authStatus = useRequireAuth();
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [page, setPage] = useState(1);
@@ -38,6 +40,10 @@ export default function SessionsPage() {
   }, [page, pageSize]);
 
   const totalPages = Math.max(Math.ceil(total / pageSize), 1);
+
+  if (authStatus === "checking") {
+    return <p className="text-sm text-slate-600">Checking authentication...</p>;
+  }
 
   return (
     <section className="space-y-4">

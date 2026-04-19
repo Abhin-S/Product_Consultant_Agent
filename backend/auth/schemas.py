@@ -12,7 +12,6 @@ class UserCreate(BaseModel):
 class UserOut(BaseModel):
     id: uuid.UUID
     email: EmailStr
-    is_admin: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

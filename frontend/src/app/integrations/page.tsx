@@ -5,8 +5,10 @@ import { useEffect, useState } from "react";
 import IntegrationCard from "../components/IntegrationCard";
 import api from "../../lib/axios";
 import { UserIntegrationOut } from "../../lib/types";
+import useRequireAuth from "../../lib/useRequireAuth";
 
 export default function IntegrationsPage() {
+  const authStatus = useRequireAuth();
   const [integrations, setIntegrations] = useState<Record<string, UserIntegrationOut>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -32,6 +34,10 @@ export default function IntegrationsPage() {
   useEffect(() => {
     fetchIntegrations();
   }, []);
+
+  if (authStatus === "checking") {
+    return <p className="text-sm text-slate-600">Checking authentication...</p>;
+  }
 
   return (
     <section className="space-y-4">

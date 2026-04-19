@@ -19,19 +19,12 @@ uv pip install --python .\.venv\Scripts\python.exe -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Fill the required values in `.env` (at least `SECRET_KEY`, `GOOGLE_API_KEY`, `FERNET_KEY`).
-
-Set default admin credentials in `backend/.env` to auto-seed an admin on startup:
-
-```dotenv
-DEFAULT_ADMIN_EMAIL=admin@example.com
-DEFAULT_ADMIN_PASSWORD=replace_with_strong_password
-```
+Fill the required values in `.env` (at least `SECRET_KEY`, `GOOGLE_API_KEY`, `FERNET_KEY`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REDIRECT_URI`).
 
 Start backend:
 
 ```powershell
-uvicorn main:app --reload --port 8000
+& .\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
 
 ## Frontend (npm)
@@ -49,31 +42,125 @@ Yes, for frontend your understanding is correct: `npm install` then `npm run dev
 
 ## Notes
 
-- Chroma documents/chunks are created only after you run the backend and call the `/ingest` endpoint.
+- Chroma documents/chunks are created only after you run ingestion once.
+- If Swagger auth is inconvenient with Google SSO-only login, run local ingestion from terminal: `& .\.venv\Scripts\python.exe ingest_local.py` (from `backend/`).
 - The root `.venv/` is not required for this setup path. The recommended Python environment is `backend/.venv`.
+- Authentication uses Google SSO only (`AUTH_MODE=google_sso`).
+- Auth tokens are stored in HttpOnly cookies (not in URL query params or browser localStorage).
+- Role separation is removed; routes are authenticated per user and session data remains scoped by `user_id`.
+
+## API Keys You Need (and How to Get Them)
+
+Required for local run:
+
+1. `GOOGLE_API_KEY` (Gemma model access)
+	- Get it from Google AI Studio: https://aistudio.google.com/app/apikey
+	- Create a key, then set it in `backend/.env`.
+
+2. `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` (Google SSO)
+	- Go to Google Cloud Console: APIs & Services -> Credentials.
+	- Create an OAuth Client ID of type Web application.
+	- Add Authorized redirect URI: `http://localhost:8000/auth/google/callback`
+	- Add Authorized JavaScript origin: `http://localhost:3000`
+	- Copy client ID and secret into `backend/.env`.
+
+3. `SECRET_KEY` (JWT signing)
+	- Generate with:
+	- `python -c "import secrets; print(secrets.token_urlsafe(48))"`
+
+4. `FERNET_KEY` (encryption key for stored integration secrets)
+	- Generate with:
+	- `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+
+Optional keys:
+
+1. `NEWS_API_KEY`
+	- Source: https://newsapi.org
+	- Needed only for news/web fallback enrichment.
+
+2. `GNEWS_API_KEY`
+	- Source: https://gnews.io
+	- Optional alternative news provider.
+
+Notion and Jira credentials (currently optional / planned OAuth):
+
+1. `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`, `NOTION_REDIRECT_URI`
+	- Current project status: Notion OAuth route is a stub, so these are not required to run the app today.
+	- Expected callback route in current backend router: `http://localhost:8000/integrations/notion/callback`
+	- How to acquire:
+	- Go to Notion integrations portal: https://www.notion.so/my-integrations
+	- Create a new integration/app and enable OAuth (public integration flow).
+	- Copy Client ID and Client Secret into `backend/.env`.
+	- Set redirect URI to the callback route above.
+	- Explicit uncertainty: Notion's portal labels and OAuth setup screens can change. If you only create an "internal" integration, you may get an integration token instead of OAuth client credentials.
+
+2. `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET`, `JIRA_REDIRECT_URI`
+	- Current project status: Jira OAuth route is a stub, so these are not required to run the app today.
+	- Expected callback route in current backend router: `http://localhost:8000/integrations/jira/callback`
+	- How to acquire:
+	- Go to Atlassian Developer Console: https://developer.atlassian.com/console/myapps/
+	- Create an OAuth 2.0 (3LO) app.
+	- Add callback URL as the Jira callback route above.
+	- Copy Client ID and Client Secret into `backend/.env`.
+	- Explicit uncertainty: exact Atlassian console wording and required scopes depend on your Jira Cloud site and the actions you plan to support.
+
+## Next Steps After Ingestion Is Done
+
+If you already ran ingestion successfully, do this next:
+
+1. Start backend (from `backend/`):
+
+```powershell
+& .\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
+```
+
+2. Start frontend (from `frontend/`):
+
+```powershell
+npm run dev
+```
+
+3. Login at `http://localhost:3000/login` using "Continue with Google".
+4. Go to Analyze page and submit your first startup idea.
+5. Re-run ingestion only when corpus changes:
+	- Incremental update: `& .\.venv\Scripts\python.exe ingest_local.py`
+	- Full rebuild: `& .\.venv\Scripts\python.exe ingest_local.py --rebuild`
 
 ## First Run Checklist
 
 1. Create and activate backend venv in `backend/`.
 2. Install backend dependencies from `backend/requirements.txt`.
 3. Copy `backend/.env.example` to `backend/.env` and fill required keys.
-4. Set `DEFAULT_ADMIN_EMAIL` and `DEFAULT_ADMIN_PASSWORD` in `backend/.env`.
+4. In Google Cloud Console, create a Web OAuth client and add the redirect URI `http://localhost:8000/auth/google/callback`.
 5. Run Alembic migrations from `backend/`:
 
 ```powershell
-alembic upgrade head
+& .\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
 6. Start backend:
 
 ```powershell
-uvicorn main:app --reload --port 8000
+& .\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
 
 7. In `frontend/`, run `npm install`, copy `.env.local.example` to `.env.local`, then run `npm run dev`.
-8. Log in as default admin and call `/ingest` once to build the local vector index.
-9. Run your first `/analyze` request.
-10. How to generate values
+8. Use "Continue with Google" on `/login`.
+9. Build the local vector index (from `backend/`) if not already done:
+
+```powershell
+& .\.venv\Scripts\python.exe ingest_local.py
+```
+
+10. Optional full rebuild (clears existing local index, then ingests again):
+
+```powershell
+& .\.venv\Scripts\python.exe ingest_local.py --rebuild
+```
+
+11. You can still trigger ingestion from `http://localhost:8000/docs` using `/ingest` when your auth cookie is available.
+12. Run your first `/analyze` request.
+13. How to generate values
 
 SECRET_KEY: python -c "import secrets; print(secrets.token_urlsafe(48))"
 FERNET_KEY: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

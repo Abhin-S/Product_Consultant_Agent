@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from config import settings
@@ -23,11 +23,8 @@ class IngestRequest(BaseModel):
 @router.post("/ingest")
 async def ingest_documents(
     payload: IngestRequest,
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(get_current_user),
 ) -> dict:
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-
     docs = load_documents(payload.docs_dir)
     preprocessed = preprocess_documents(docs)
     parents, child_chunks = chunk_documents_hierarchical(
