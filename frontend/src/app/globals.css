@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-mist text-ink;
+  font-family: "Segoe UI", "Trebuchet MS", sans-serif;
+  background-image: radial-gradient(circle at 10% 20%, rgba(42, 157, 143, 0.14), transparent 35%),
+    radial-gradient(circle at 90% 10%, rgba(235, 94, 40, 0.1), transparent 30%);
+  min-height: 100vh;
+}
+
+a {
+  @apply text-sky hover:underline;
+}

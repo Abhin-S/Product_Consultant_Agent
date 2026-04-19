@@ -1,0 +1,262 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+import logging
+
+import google.generativeai as genai
+
+from config import settings
+from ingestion.embedder import embed_query
+from retrieval.parent_store import get_parent_chunk
+from retrieval.vector_store import get_collection
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class RetrievedDoc:
+    text: str
+    source: str
+    similarity_score: float
+    doc_type: str
+    chunk_id: str | None = None
+    parent_id: str | None = None
+    parent_index: int | None = None
+    child_index: int | None = None
+    chunk_type: str = "chunk"
+
+
+genai.configure(api_key=settings.GOOGLE_API_KEY)
+_retrieval_model = genai.GenerativeModel(settings.GEMMA_MODEL_NAME)
+
+
+def _extract_text(response: object) -> str:
+    text = getattr(response, "text", None)
+    if text:
+        return str(text).strip()
+
+    candidates = getattr(response, "candidates", None) or []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) or []
+        merged = "".join(str(getattr(part, "text", "")) for part in parts).strip()
+        if merged:
+            return merged
+
+    return ""
+
+
+def _generate_query_variants(query: str) -> list[str]:
+    if settings.MULTI_QUERY_COUNT <= 1:
+        return [query]
+
+    prompt = (
+        "You are a retrieval query rewriter for product strategy case studies.\n"
+        "Generate diverse paraphrases to improve semantic retrieval coverage.\n"
+        "Return ONLY JSON with schema: {\"queries\": [\"...\"]}.\n"
+        f"Generate {settings.MULTI_QUERY_COUNT} alternatives for this query:\n"
+        f"{query}"
+    )
+
+    try:
+        response = _retrieval_model.generate_content(
+            prompt,
+            generation_config={"temperature": 0.2, "response_mime_type": "application/json"},
+            request_options={"timeout": 10},
+        )
+        payload = json.loads(_extract_text(response))
+        generated = payload.get("queries", []) if isinstance(payload, dict) else []
+        clean = [q.strip() for q in generated if isinstance(q, str) and q.strip()]
+    except Exception as exc:
+        logger.info("Query expansion fallback: %s", exc)
+        clean = []
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for q in [query] + clean:
+        key = q.casefold()
+        if key not in seen:
+            seen.add(key)
+            unique.append(q)
+
+    return unique[: max(settings.MULTI_QUERY_COUNT + 1, 1)]
+
+
+def _retrieve_for_query(query: str, top_k: int) -> list[RetrievedDoc]:
+    collection = get_collection()
+    query_vector = embed_query(query)
+
+    result = collection.query(
+        query_embeddings=[query_vector.tolist()],
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    ids = result.get("ids", [[]])[0]
+    docs = result.get("documents", [[]])[0]
+    metadatas = result.get("metadatas", [[]])[0]
+    distances = result.get("distances", [[]])[0]
+
+    retrieved: list[RetrievedDoc] = []
+    for chunk_id, text, metadata, distance in zip(ids, docs, metadatas, distances):
+        similarity = 1.0 - float(distance)
+        parent_index = metadata.get("parent_index")
+        child_index = metadata.get("child_index")
+        retrieved.append(
+            RetrievedDoc(
+                text=text,
+                source=str(metadata.get("source", "unknown")),
+                similarity_score=similarity,
+                doc_type=str(metadata.get("doc_type", "local")),
+                chunk_id=chunk_id,
+                parent_id=str(metadata.get("parent_id")) if metadata.get("parent_id") else None,
+                parent_index=int(parent_index) if isinstance(parent_index, int) else None,
+                child_index=int(child_index) if isinstance(child_index, int) else None,
+                chunk_type=str(metadata.get("chunk_type", "chunk")),
+            )
+        )
+
+    return retrieved
+
+
+def _reconstruct_parent_context(docs: list[RetrievedDoc], max_parents: int, top_k: int) -> list[RetrievedDoc]:
+    if not docs:
+        return docs
+
+    parent_candidates: dict[str, RetrievedDoc] = {}
+    passthrough_docs: list[RetrievedDoc] = []
+
+    for doc in docs:
+        if not doc.parent_id:
+            passthrough_docs.append(doc)
+            continue
+
+        parent_payload = get_parent_chunk(doc.parent_id)
+        if not parent_payload:
+            passthrough_docs.append(doc)
+            continue
+
+        parent_text = str(parent_payload.get("text", "")).strip()
+        if not parent_text:
+            passthrough_docs.append(doc)
+            continue
+
+        current = parent_candidates.get(doc.parent_id)
+        candidate = RetrievedDoc(
+            text=parent_text,
+            source=str(parent_payload.get("source", doc.source)),
+            similarity_score=doc.similarity_score,
+            doc_type=doc.doc_type,
+            chunk_id=f"parent::{doc.parent_id}",
+            parent_id=doc.parent_id,
+            parent_index=parent_payload.get("parent_index"),
+            chunk_type="parent",
+        )
+
+        if current is None or candidate.similarity_score > current.similarity_score:
+            parent_candidates[doc.parent_id] = candidate
+
+    ranked_parents = sorted(
+        parent_candidates.values(), key=lambda item: item.similarity_score, reverse=True
+    )[:max_parents]
+
+    # Preserve non-hierarchical docs while preferring reconstructed parent context for child hits.
+    combined = ranked_parents + passthrough_docs
+    combined = sorted(combined, key=lambda item: item.similarity_score, reverse=True)
+    return combined[:top_k]
+
+
+def _reciprocal_rank_fusion(ranked_lists: list[list[RetrievedDoc]], top_k: int) -> list[RetrievedDoc]:
+    if not ranked_lists:
+        return []
+
+    fused_scores: dict[str, float] = {}
+    docs_by_id: dict[str, RetrievedDoc] = {}
+
+    for docs in ranked_lists:
+        for rank, doc in enumerate(docs, start=1):
+            key = doc.chunk_id or f"{doc.source}:{hash(doc.text)}"
+            fused_scores[key] = fused_scores.get(key, 0.0) + 1.0 / (settings.RRF_K + rank)
+
+            existing = docs_by_id.get(key)
+            if existing is None or doc.similarity_score > existing.similarity_score:
+                docs_by_id[key] = doc
+
+    ranked = sorted(fused_scores.items(), key=lambda item: item[1], reverse=True)
+    return [docs_by_id[key] for key, _ in ranked[:top_k]]
+
+
+def _grade_relevance(question: str, docs: list[RetrievedDoc]) -> list[RetrievedDoc]:
+    if not docs:
+        return docs
+
+    docs_blob = "\n\n".join(
+        f"[{idx}] source={doc.source}\n{doc.text[:1200]}" for idx, doc in enumerate(docs, start=1)
+    )
+
+    prompt = (
+        "You are a strict relevance grader for RAG.\n"
+        "Task: select which document excerpts are useful to answer the user question.\n"
+        "Return ONLY JSON with schema: {\"relevant_indices\": [1,2,...]}.\n"
+        "Only include indices that are clearly relevant.\n\n"
+        f"Question:\n{question}\n\n"
+        f"Documents:\n{docs_blob}"
+    )
+
+    try:
+        response = _retrieval_model.generate_content(
+            prompt,
+            generation_config={"temperature": 0, "response_mime_type": "application/json"},
+            request_options={"timeout": 10},
+        )
+        payload = json.loads(_extract_text(response))
+        raw_indices = payload.get("relevant_indices", []) if isinstance(payload, dict) else []
+
+        relevant_indices = sorted(
+            {
+                int(i)
+                for i in raw_indices
+                if isinstance(i, int) and 1 <= i <= len(docs)
+            }
+        )
+    except Exception as exc:
+        logger.info("Relevance grading fallback: %s", exc)
+        return docs
+
+    filtered = [docs[i - 1] for i in relevant_indices]
+    if len(filtered) < min(settings.CRAG_MIN_RELEVANT_DOCS, len(docs)):
+        return docs
+    return filtered
+
+
+def retrieve_local(query: str, top_k: int) -> tuple[list[RetrievedDoc], bool, dict]:
+    query_variants = _generate_query_variants(query)
+
+    ranked_lists: list[list[RetrievedDoc]] = []
+    for variant in query_variants:
+        try:
+            ranked_lists.append(_retrieve_for_query(variant, top_k=top_k))
+        except Exception as exc:
+            logger.warning("Retrieval failed for variant '%s': %s", variant[:80], exc)
+
+    fused_docs = _reciprocal_rank_fusion(ranked_lists, top_k=top_k)
+    graded_docs = _grade_relevance(query, fused_docs)
+    parent_docs = _reconstruct_parent_context(
+        graded_docs,
+        max_parents=max(settings.MAX_PARENT_CONTEXT_CHUNKS, 1),
+        top_k=top_k,
+    )
+
+    max_similarity = max((doc.similarity_score for doc in parent_docs), default=0.0)
+    low_confidence = max_similarity < settings.CONFIDENCE_THRESHOLD
+
+    diagnostics = {
+        "query_variants": query_variants,
+        "retrieved_before_crag": len(fused_docs),
+        "retrieved_after_crag": len(graded_docs),
+        "parent_context_docs": len([doc for doc in parent_docs if doc.chunk_type == "parent"]),
+    }
+
+    return parent_docs, low_confidence, diagnostics

@@ -1,0 +1,19 @@
+# Root-level accidental venv (not used by this project runtime)
+.venv/
+_docx_unzipped
+Project_details.docx
+Project_details.zip
+
+# Backend Python environment and artifacts
+backend/.venv/
+backend/__pycache__/
+backend/**/*.pyc
+backend/.env
+backend/dev.db
+backend/chroma_db/
+backend/processed_data/parent_chunks.json
+
+# Frontend Node environment and artifacts
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
