@@ -75,6 +75,52 @@ export default function InsightDisplay({
         </div>
       </article>
 
+      {insight.notion_page_content && insight.notion_page_content.trim().length > 0 && (
+        <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
+          <h3 className="text-lg font-semibold">Notion Page Content (Primary)</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            This formatted draft is ready to paste into a Notion page body.
+          </p>
+          <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-sm text-slate-800">
+            {insight.notion_page_content}
+          </pre>
+        </article>
+      )}
+
+      {insight.database_metadata && (
+        <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
+          <h3 className="text-lg font-semibold">Database Metadata (Secondary)</h3>
+          <div className="mt-3 grid gap-2 text-sm text-slate-700 md:grid-cols-2">
+            <p>
+              <span className="font-medium">Name:</span> {insight.database_metadata.name}
+            </p>
+            <p>
+              <span className="font-medium">Risk Level:</span> {insight.database_metadata.risk_level}
+            </p>
+            <p className="md:col-span-2">
+              <span className="font-medium">Idea Description:</span> {insight.database_metadata.idea_description}
+            </p>
+            <p>
+              <span className="font-medium">Confidence Score:</span> {insight.database_metadata.confidence_score}
+            </p>
+            <div className="md:col-span-2">
+              <p className="mb-1 font-medium">Tags:</p>
+              <div className="flex flex-wrap gap-2">
+                {insight.database_metadata.tags.length > 0 ? (
+                  insight.database_metadata.tags.map((tag) => (
+                    <span key={tag} className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                      {tag}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-slate-500">No tags</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </article>
+      )}
+
       <div className="grid gap-4 md:grid-cols-3">
         <article className="rounded-2xl border border-red-200 bg-red-50 p-4">
           <h3 className="mb-2 font-semibold text-red-700">⚠ Risks</h3>

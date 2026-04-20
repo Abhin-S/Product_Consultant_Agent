@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from config import settings
 from reasoning.prompts import FALLBACK_NOTE, NO_FALLBACK_NOTE, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
-from reasoning.schema import InsightOutput
+from reasoning.schema import InsightOutput, NotionDatabaseMetadata
 from retrieval.fallback.context_builder import ContextBundle
 
 
@@ -124,6 +124,183 @@ def _build_context_text(bundle: ContextBundle) -> str:
     return "\n\n".join(lines)
 
 
+def _clean_text(value: str) -> str:
+    return " ".join((value or "").split()).strip()
+
+
+def _truncate_text(value: str, max_len: int) -> str:
+    clean = _clean_text(value)
+    if len(clean) <= max_len:
+        return clean
+    return f"{clean[: max_len - 1].rstrip()}..."
+
+
+def _short_title_from_idea(idea: str) -> str:
+    cleaned = _clean_text(idea)
+    if not cleaned:
+        return "Startup Idea"
+
+    lowered = cleaned.lower()
+    for prefix in ("build ", "create ", "develop ", "launch ", "design ", "start "):
+        if lowered.startswith(prefix):
+            cleaned = cleaned[len(prefix):]
+            break
+
+    candidate = _truncate_text(cleaned, 80).strip(" .,:;-")
+    if not candidate:
+        return "Startup Idea"
+    return candidate[0].upper() + candidate[1:]
+
+
+def _infer_risk_level(insight: InsightOutput) -> str:
+    risk_text = " ".join(insight.risks).lower()
+    severe_keywords = (
+        "regulat",
+        "legal",
+        "compliance",
+        "security",
+        "privacy",
+        "safety",
+        "liability",
+        "high risk",
+        "failure",
+    )
+
+    has_high_priority = any(action.priority == "high" for action in insight.actions)
+    has_severe_signal = any(keyword in risk_text for keyword in severe_keywords)
+
+    if has_high_priority or has_severe_signal:
+        return "High"
+    if insight.confidence_score >= 0.72 and len(insight.risks) <= 3:
+        return "Low"
+    return "Medium"
+
+
+def _derive_tags(idea: str, insight: InsightOutput) -> list[str]:
+    source = " ".join(
+        [
+            idea,
+            insight.idea_summary,
+            " ".join(insight.opportunities),
+            " ".join(insight.recommendations),
+        ]
+    ).lower()
+
+    keyword_tags = [
+        ("ai", "ai"),
+        ("automation", "automation"),
+        ("saas", "saas"),
+        ("market", "market"),
+        ("fin", "fintech"),
+        ("health", "healthtech"),
+        ("edu", "edtech"),
+        ("supply", "supply-chain"),
+        ("b2b", "b2b"),
+        ("consumer", "b2c"),
+        ("mobile", "mobile"),
+        ("platform", "platform"),
+    ]
+
+    tags: list[str] = []
+    for keyword, tag in keyword_tags:
+        if keyword in source and tag not in tags:
+            tags.append(tag)
+
+    if "strategy" not in tags:
+        tags.append("strategy")
+    if "execution" not in tags:
+        tags.append("execution")
+
+    return tags[:8]
+
+
+def _build_notion_page_content(idea: str, insight: InsightOutput) -> str:
+    startup_idea = _truncate_text(idea, 350) or "No startup idea provided."
+    market_insight = _truncate_text(insight.idea_summary, 450) or "No market insight available."
+
+    strategy_lines = insight.recommendations[:2] or ["No strategy recommendation available."]
+    strategy_recommendation = " ".join(_clean_text(line) for line in strategy_lines)
+
+    risks = insight.risks or ["No major risks identified from retrieved context."]
+    opportunities = insight.opportunities or ["No opportunity areas identified from retrieved context."]
+
+    tasks: list[str] = []
+    for idx, action in enumerate(insight.actions[:5], start=1):
+        task_text = _clean_text(action.title)
+        if action.description:
+            task_text = f"{task_text}: {_clean_text(action.description)}"
+        tasks.append(f"* Task {idx}: {task_text}")
+    if not tasks:
+        tasks.append("* Task 1: Define immediate next-step actions from available evidence")
+
+    takeaway_candidates = [
+        strategy_lines[0] if strategy_lines else "",
+        insight.opportunities[0] if insight.opportunities else "",
+        insight.risks[0] if insight.risks else "",
+    ]
+    key_takeaway = " ".join(_clean_text(item) for item in takeaway_candidates if _clean_text(item))
+    key_takeaway = _truncate_text(key_takeaway, 280) or "Execution should prioritize validated demand and measurable outcomes."
+
+    lines: list[str] = [
+        "🚀 Startup Idea",
+        startup_idea,
+        "",
+        "📊 Market Insight",
+        market_insight,
+        "",
+        "🧠 Strategy Recommendation",
+        strategy_recommendation,
+        "",
+        "⚠️ Risks & Challenges",
+    ]
+
+    lines.extend(f"- {_truncate_text(item, 220)}" for item in risks[:6])
+    lines.extend(["", "📈 Opportunity Areas"])
+    lines.extend(f"- {_truncate_text(item, 220)}" for item in opportunities[:6])
+    lines.extend(["", "🛠 Actionable Tasks"])
+    lines.extend(tasks)
+    lines.extend(["", "📌 Key Takeaways", key_takeaway])
+
+    return "\n".join(lines).strip()
+
+
+def _build_database_metadata(idea: str, insight: InsightOutput) -> NotionDatabaseMetadata:
+    return NotionDatabaseMetadata(
+        name=_short_title_from_idea(idea),
+        idea_description=_truncate_text(insight.idea_summary or idea, 240),
+        risk_level=_infer_risk_level(insight),
+        confidence_score=int(round(max(0.0, min(1.0, insight.confidence_score)) * 100)),
+        tags=_derive_tags(idea, insight),
+    )
+
+
+def _ensure_notion_format_outputs(idea: str, insight: InsightOutput) -> InsightOutput:
+    if not _clean_text(insight.notion_page_content):
+        insight.notion_page_content = _build_notion_page_content(idea, insight)
+    else:
+        insight.notion_page_content = insight.notion_page_content.strip()
+
+    if insight.database_metadata is None:
+        insight.database_metadata = _build_database_metadata(idea, insight)
+    else:
+        metadata = insight.database_metadata
+        metadata.name = _truncate_text(metadata.name, 120) or _short_title_from_idea(idea)
+        metadata.idea_description = _truncate_text(
+            metadata.idea_description,
+            300,
+        ) or _truncate_text(insight.idea_summary or idea, 240)
+        metadata.confidence_score = int(max(0, min(100, metadata.confidence_score)))
+        metadata.tags = [
+            _truncate_text(tag, 40)
+            for tag in metadata.tags
+            if _clean_text(tag)
+        ][:8]
+        if not metadata.tags:
+            metadata.tags = _derive_tags(idea, insight)
+
+    return insight
+
+
 def _request_options() -> dict | None:
     timeout = int(settings.MODEL_REQUEST_TIMEOUT_SECONDS)
     if timeout > 0:
@@ -223,6 +400,7 @@ async def generate_insight(idea: str, context_bundle: ContextBundle) -> tuple[In
 
             confidence = mean([doc.similarity_score for doc in context_bundle.docs]) if context_bundle.docs else 0.0
             insight.confidence_score = float(max(0.0, min(1.0, confidence)))
+            insight = _ensure_notion_format_outputs(idea, insight)
 
             latency_ms = (time.perf_counter() - start) * 1000
 
@@ -345,6 +523,7 @@ async def regenerate_grounded_insight(
 
             confidence = mean([doc.similarity_score for doc in context_bundle.docs]) if context_bundle.docs else 0.0
             repaired.confidence_score = float(max(0.0, min(1.0, confidence)))
+            repaired = _ensure_notion_format_outputs(idea, repaired)
             return repaired
         except (ValidationError, json.JSONDecodeError, ValueError) as exc:
             corrections.append(
@@ -363,7 +542,7 @@ def build_conservative_insight(idea: str, context_bundle: ContextBundle) -> Insi
     confidence = mean([doc.similarity_score for doc in context_bundle.docs]) if context_bundle.docs else 0.0
     conservative_confidence = float(max(0.0, min(1.0, confidence * 0.6)))
 
-    return InsightOutput(
+    insight = InsightOutput(
         idea_summary=f"Initial review for: {idea[:220]}",
         risks=[
             "Retrieved evidence is insufficient to fully validate detailed risk claims.",
@@ -387,6 +566,7 @@ def build_conservative_insight(idea: str, context_bundle: ContextBundle) -> Insi
         ],
         confidence_score=conservative_confidence,
     )
+    return _ensure_notion_format_outputs(idea, insight)
 
 
 async def enforce_faithfulness(

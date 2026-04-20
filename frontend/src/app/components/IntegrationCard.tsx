@@ -97,7 +97,7 @@ export default function IntegrationCard({ provider, label, integration, onRefres
 
       {integration ? (
         <div className="space-y-2 text-sm">
-          <p>{provider === "notion" ? "parent_page_id" : "workspace_id"}: {mask(integration.workspace_id)}</p>
+          <p>{provider === "notion" ? "report_page_id" : "workspace_id"}: {mask(integration.workspace_id)}</p>
           <p>database_id: {mask(integration.database_id)}</p>
           <button
             onClick={disconnect}
@@ -132,25 +132,28 @@ export default function IntegrationCard({ provider, label, integration, onRefres
               {provider === "notion" ? (
                 <>
                   <label className="block">
-                    <span className="mb-1 block text-sm">Database ID (optional)</span>
+                    <span className="mb-1 block text-sm">Database ID or URL (optional)</span>
                     <input
                       type="text"
                       value={notionDatabaseId}
                       onChange={(e) => setNotionDatabaseId(e.target.value)}
-                      placeholder="Use existing database id"
+                      placeholder="Paste Notion database ID or URL"
                       className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                     />
                   </label>
 
                   <label className="block">
-                    <span className="mb-1 block text-sm">Parent Page ID (optional)</span>
+                    <span className="mb-1 block text-sm">Report Page ID or URL (optional)</span>
                     <input
                       type="text"
                       value={notionParentPageId}
                       onChange={(e) => setNotionParentPageId(e.target.value)}
-                      placeholder="Used only when auto-creating database"
+                      placeholder="Paste Notion page ID or URL"
                       className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                     />
+                    <p className="mt-1 text-xs text-slate-500">
+                      We auto-parse Notion URLs into IDs and do not auto-create pages/databases in teamspaces.
+                    </p>
                   </label>
                 </>
               ) : (
@@ -190,13 +193,6 @@ export default function IntegrationCard({ provider, label, integration, onRefres
           )}
         </>
       )}
-
-      <button
-        disabled
-        className="cursor-not-allowed rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-500"
-      >
-        Connect with OAuth (coming in v2)
-      </button>
     </article>
   );
 }

@@ -18,6 +18,32 @@ CRITICAL RULES:
    - IF case study coverage is weak:
      USE news cautiously.
      LABEL as low-confidence reasoning.
+6. You must also produce Notion-ready formatting outputs in the JSON fields:
+   - notion_page_content
+   - database_metadata
+7. notion_page_content must use this exact section order and headings:
+   🚀 Startup Idea
+   📊 Market Insight
+   🧠 Strategy Recommendation
+   ⚠️ Risks & Challenges
+   📈 Opportunity Areas
+   🛠 Actionable Tasks
+   📌 Key Takeaways
+8. Formatting constraints for notion_page_content:
+   - Short paragraphs (2-4 lines max)
+   - Use bullets where possible
+   - Remove redundancy
+   - Professional consulting-report tone
+   - Do not include raw reasoning chain
+9. database_metadata must include concise normalized values:
+   {{
+     "name": "short title",
+     "idea_description": "1-2 lines",
+     "risk_level": "Low|Medium|High",
+     "confidence_score": 0-100 integer,
+     "tags": ["optional", "categories"]
+   }}
+10. Do not hallucinate beyond the provided analysis context.
 """
 
 USER_PROMPT_TEMPLATE = """

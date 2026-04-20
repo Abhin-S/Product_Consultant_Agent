@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from actions.executor import execute_actions
+from actions.executor import NotionExecutionContext, execute_actions
 from auth.dependencies import get_current_user
 from auth.models import User
 from database import get_db
@@ -65,7 +65,21 @@ async def execute_session_actions(
                 detail=f"Please connect your {provider_label} account in /integrations before executing.",
             )
 
-    results = await execute_actions(actions=actions, target=payload.target, user_id=current_user.id, db=db)
+    notion_context = NotionExecutionContext(
+        session_id=str(session.id),
+        notion_page_content=insight.notion_page_content or "",
+        database_metadata=(
+            insight.database_metadata.model_dump() if insight.database_metadata is not None else None
+        ),
+    )
+
+    results = await execute_actions(
+        actions=actions,
+        target=payload.target,
+        user_id=current_user.id,
+        db=db,
+        notion_context=notion_context,
+    )
 
     action_by_title = {action.title: action for action in actions}
     for result in results:
@@ -93,6 +107,7 @@ async def execute_session_actions(
             "external_id": result.external_id,
             "status": result.status,
             "error_message": result.error_message,
+            "insight_page_url": result.insight_page_url,
         }
         for result in results
     ]

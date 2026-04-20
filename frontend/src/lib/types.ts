@@ -12,6 +12,14 @@ export interface InsightOutput {
   recommendations: string[];
   actions: ActionItem[];
   confidence_score: number;
+  notion_page_content?: string;
+  database_metadata?: {
+    name: string;
+    idea_description: string;
+    risk_level: "Low" | "Medium" | "High";
+    confidence_score: number;
+    tags: string[];
+  } | null;
 }
 
 export interface Tier1Metrics {
@@ -58,6 +66,7 @@ export interface ActionResult {
   external_id: string | null;
   status: "executed" | "failed";
   error_message: string | null;
+  insight_page_url?: string | null;
 }
 
 export interface ExecuteRequest {

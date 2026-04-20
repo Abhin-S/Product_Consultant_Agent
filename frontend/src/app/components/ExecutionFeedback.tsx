@@ -31,11 +31,29 @@ export default function ExecutionFeedback({ results, onAnalyzeAnother }: Props) 
               {result.status === "executed" ? (
                 <p className="mt-1 text-sm">
                   {result.target_provider === "notion"
-                    ? `Notion page created: ${result.external_id}`
+                    ? `Notion task entry created: ${result.external_id}`
                     : `Jira issue: ${result.external_id}`}
                 </p>
               ) : (
                 <p className="mt-1 text-sm">{result.error_message || "Execution failed"}</p>
+              )}
+
+              {result.target_provider === "notion" && result.insight_page_url && (
+                <p className="mt-1 text-sm">
+                  Insight page: {" "}
+                  <a
+                    href={result.insight_page_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-blue-700 underline"
+                  >
+                    Open in Notion
+                  </a>
+                </p>
+              )}
+
+              {result.target_provider === "notion" && !result.insight_page_url && result.status === "executed" && (
+                <p className="mt-1 text-sm">Report page was not updated. Provide a Report Page ID in Integrations.</p>
               )}
             </article>
           ))
