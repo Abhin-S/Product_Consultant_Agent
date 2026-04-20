@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from actions.jira_client import create_jira_issue
-from actions.notion_client import create_notion_task
+from actions.notion_client import create_notion_actions_database, create_notion_task
 from integrations.encryption import decrypt_token
 from integrations.models import UserIntegration
 from reasoning.schema import ActionItem
@@ -71,16 +71,57 @@ async def execute_actions(
                 )
             continue
 
+        notion_database_id = integration.database_id
+        if provider == "notion" and not notion_database_id:
+            parent_page_id = (integration.workspace_id or "").strip()
+            if not parent_page_id:
+                message = (
+                    "Notion database_id is required. Provide an existing Database ID, or provide a Notion "
+                    "parent page id to auto-create the action database."
+                )
+                for action in actions:
+                    out.append(
+                        ActionResult(
+                            action_title=action.title,
+                            target_provider=provider,
+                            external_id=None,
+                            status="failed",
+                            error_message=message,
+                        )
+                    )
+                continue
+
+            try:
+                notion_database_id = create_notion_actions_database(
+                    user_token=decrypted_token,
+                    parent_page_id=parent_page_id,
+                )
+                integration.database_id = notion_database_id
+                await db.commit()
+                await db.refresh(integration)
+            except Exception as exc:
+                for action in actions:
+                    out.append(
+                        ActionResult(
+                            action_title=action.title,
+                            target_provider=provider,
+                            external_id=None,
+                            status="failed",
+                            error_message=str(exc),
+                        )
+                    )
+                continue
+
         for action in actions:
             try:
                 external_id: str | None = None
 
                 if provider == "notion":
-                    if not integration.database_id:
+                    if not notion_database_id:
                         raise ValueError("Notion database_id is required for execution")
                     external_id = create_notion_task(
                         user_token=decrypted_token,
-                        database_id=integration.database_id,
+                        database_id=notion_database_id,
                         title=action.title,
                         description=action.description,
                         priority=action.priority,

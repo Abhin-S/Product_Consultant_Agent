@@ -21,6 +21,7 @@ export default function IntegrationCard({ provider, label, integration, onRefres
   const [showForm, setShowForm] = useState(false);
   const [token, setToken] = useState("");
   const [notionDatabaseId, setNotionDatabaseId] = useState("");
+  const [notionParentPageId, setNotionParentPageId] = useState("");
   const [jiraUrl, setJiraUrl] = useState("");
   const [jiraProjectKey, setJiraProjectKey] = useState("");
   const [loading, setLoading] = useState(false);
@@ -36,7 +37,14 @@ export default function IntegrationCard({ provider, label, integration, onRefres
       };
 
       if (provider === "notion") {
-        payload.database_id = notionDatabaseId;
+        const trimmedDatabaseId = notionDatabaseId.trim();
+        const trimmedParentPageId = notionParentPageId.trim();
+        if (trimmedDatabaseId) {
+          payload.database_id = trimmedDatabaseId;
+        }
+        if (trimmedParentPageId) {
+          payload.workspace_id = trimmedParentPageId;
+        }
       } else {
         payload.workspace_id = jiraUrl;
         payload.database_id = jiraProjectKey;
@@ -46,6 +54,7 @@ export default function IntegrationCard({ provider, label, integration, onRefres
       setShowForm(false);
       setToken("");
       setNotionDatabaseId("");
+      setNotionParentPageId("");
       setJiraUrl("");
       setJiraProjectKey("");
       await onRefresh();
@@ -88,7 +97,7 @@ export default function IntegrationCard({ provider, label, integration, onRefres
 
       {integration ? (
         <div className="space-y-2 text-sm">
-          <p>workspace_id: {mask(integration.workspace_id)}</p>
+          <p>{provider === "notion" ? "parent_page_id" : "workspace_id"}: {mask(integration.workspace_id)}</p>
           <p>database_id: {mask(integration.database_id)}</p>
           <button
             onClick={disconnect}
@@ -121,15 +130,29 @@ export default function IntegrationCard({ provider, label, integration, onRefres
               </label>
 
               {provider === "notion" ? (
-                <label className="block">
-                  <span className="mb-1 block text-sm">Database ID</span>
-                  <input
-                    type="text"
-                    value={notionDatabaseId}
-                    onChange={(e) => setNotionDatabaseId(e.target.value)}
-                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </label>
+                <>
+                  <label className="block">
+                    <span className="mb-1 block text-sm">Database ID (optional)</span>
+                    <input
+                      type="text"
+                      value={notionDatabaseId}
+                      onChange={(e) => setNotionDatabaseId(e.target.value)}
+                      placeholder="Use existing database id"
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-sm">Parent Page ID (optional)</span>
+                    <input
+                      type="text"
+                      value={notionParentPageId}
+                      onChange={(e) => setNotionParentPageId(e.target.value)}
+                      placeholder="Used only when auto-creating database"
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </label>
+                </>
               ) : (
                 <>
                   <label className="block">

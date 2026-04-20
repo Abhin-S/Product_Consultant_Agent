@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # Google AI Studio — Gemma 4
     GOOGLE_API_KEY: str
     GEMMA_MODEL_NAME: str = "gemma-4-it"
+    LLM_FALLBACK_MODEL_NAME: str = "gemma-3-12b-it"
 
     # Google SSO (OAuth)
     GOOGLE_OAUTH_CLIENT_ID: str = ""
@@ -36,6 +37,10 @@ class Settings(BaseSettings):
     TOP_K_DEFAULT: int = 5
     MAX_CONTEXT_TOKENS: int = 3000
     LLM_MAX_RETRIES: int = 3
+    MODEL_REQUEST_TIMEOUT_SECONDS: int = 30
+    BYPASS_LLM_CALLS: bool = False
+    ENABLE_QUERY_EXPANSION: bool = True
+    ENABLE_RELEVANCE_GRADING: bool = True
     MULTI_QUERY_COUNT: int = 3
     RRF_K: int = 60
     CRAG_MIN_RELEVANT_DOCS: int = 2

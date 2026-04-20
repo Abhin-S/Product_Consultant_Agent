@@ -22,7 +22,7 @@ from evaluation.lightweight_metrics import (
 from evaluation.models import AnalysisSession, EvaluationLog
 from evaluation.ragas_evaluator import run_ragas_evaluation, should_run_ragas
 from ingestion.embedder import get_embedder_model
-from reasoning.llm_client import enforce_faithfulness, generate_insight
+from reasoning.llm_client import build_conservative_insight, enforce_faithfulness, generate_insight
 from retrieval.fallback.context_builder import build_context_bundle
 from retrieval.fallback.dynamic_retriever import retrieve_dynamic_chunks
 from retrieval.retriever import retrieve_local
@@ -82,16 +82,23 @@ async def analyze_idea(
         )
 
     context_bundle = build_context_bundle(local_docs=local_docs, dynamic_chunks=dynamic_chunks)
-    insight, latency_ms, retry_count = await generate_insight(payload.idea, context_bundle)
-    faithfulness_corrected = False
-    if settings.ENABLE_GROUNDING_CHECK:
-        insight, grounding_status, faithfulness_corrected = await enforce_faithfulness(
-            payload.idea,
-            context_bundle,
-            insight,
-        )
+    if settings.BYPASS_LLM_CALLS:
+        insight = build_conservative_insight(payload.idea, context_bundle)
+        latency_ms = 0.0
+        retry_count = 0
+        grounding_status = "bypassed"
+        faithfulness_corrected = False
     else:
-        grounding_status = "not_requested"
+        insight, latency_ms, retry_count = await generate_insight(payload.idea, context_bundle)
+        faithfulness_corrected = False
+        if settings.ENABLE_GROUNDING_CHECK:
+            insight, grounding_status, faithfulness_corrected = await enforce_faithfulness(
+                payload.idea,
+                context_bundle,
+                insight,
+            )
+        else:
+            grounding_status = "not_requested"
 
     session = AnalysisSession(
         user_id=current_user.id,

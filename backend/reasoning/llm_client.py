@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from statistics import mean
 
 import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
 import tiktoken
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -21,7 +23,23 @@ ENCODING = tiktoken.get_encoding("cl100k_base")
 
 
 genai.configure(api_key=settings.GOOGLE_API_KEY)
-_model = genai.GenerativeModel(settings.GEMMA_MODEL_NAME)
+_model_cache: dict[str, genai.GenerativeModel] = {}
+
+
+def _candidate_model_names() -> list[str]:
+    names = [settings.GEMMA_MODEL_NAME]
+    fallback = settings.LLM_FALLBACK_MODEL_NAME.strip()
+    if fallback and fallback not in names:
+        names.append(fallback)
+    return names
+
+
+def _get_model(model_name: str) -> genai.GenerativeModel:
+    model = _model_cache.get(model_name)
+    if model is None:
+        model = genai.GenerativeModel(model_name)
+        _model_cache[model_name] = model
+    return model
 
 
 def _token_len(text: str) -> int:
@@ -44,6 +62,59 @@ def _extract_text(response: object) -> str:
     raise ValueError("No response text returned from model")
 
 
+def _json_candidates(text: str) -> list[str]:
+    raw = (text or "").strip()
+    candidates: list[str] = []
+    if raw:
+        candidates.append(raw)
+
+    for block in re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", raw, flags=re.IGNORECASE):
+        block = block.strip()
+        if block:
+            candidates.append(block)
+
+    decoder = json.JSONDecoder()
+    for idx, ch in enumerate(raw):
+        if ch not in "[{":
+            continue
+        try:
+            _, end = decoder.raw_decode(raw[idx:])
+            snippet = raw[idx : idx + end].strip()
+            if snippet:
+                candidates.append(snippet)
+        except Exception:
+            continue
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = candidate.strip()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(key)
+    return unique
+
+
+def _parse_json_payload(text: str):
+    last_error: Exception | None = None
+    list_fallback = None
+    for candidate in _json_candidates(text):
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+            if list_fallback is None and isinstance(parsed, list):
+                list_fallback = parsed
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if list_fallback is not None:
+        return list_fallback
+
+    raise ValueError(f"No valid JSON payload found in model response: {last_error}")
+
+
 def _build_context_text(bundle: ContextBundle) -> str:
     lines: list[str] = []
     for idx, doc in enumerate(bundle.docs, start=1):
@@ -53,25 +124,73 @@ def _build_context_text(bundle: ContextBundle) -> str:
     return "\n\n".join(lines)
 
 
-def _call_gemma(prompt: str):
+def _request_options() -> dict | None:
+    timeout = int(settings.MODEL_REQUEST_TIMEOUT_SECONDS)
+    if timeout > 0:
+        return {"timeout": timeout}
+    return None
+
+
+def _generate_with_options(model: genai.GenerativeModel, prompt: str, generation_config: dict) -> object:
+    options = _request_options()
+    if options is None:
+        return model.generate_content(prompt, generation_config=generation_config)
+    return model.generate_content(
+        prompt,
+        generation_config=generation_config,
+        request_options=options,
+    )
+
+
+def _call_gemma(prompt: str) -> tuple[object, str]:
     generation_config = {
         "temperature": 0,
         "response_mime_type": "application/json",
     }
-    try:
-        return _model.generate_content(
-            prompt,
-            generation_config=generation_config,
-            request_options={"timeout": 10},
-        )
-    except Exception as exc:
-        if "response_mime_type" not in str(exc):
-            raise
-        return _model.generate_content(
-            prompt,
-            generation_config={"temperature": 0},
-            request_options={"timeout": 10},
-        )
+    last_error: Exception | None = None
+
+    for model_name in _candidate_model_names():
+        model = _get_model(model_name)
+        try:
+            response = _generate_with_options(model, prompt, generation_config)
+            return response, model_name
+        except Exception as exc:
+            try:
+                if "response_mime_type" in str(exc):
+                    response = _generate_with_options(model, prompt, {"temperature": 0})
+                    return response, model_name
+            except Exception as inner_exc:
+                exc = inner_exc
+
+            last_error = exc
+            logger.warning("llm_model_attempt_failed model=%s reason=%s", model_name, exc)
+            continue
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("No LLM model names configured")
+
+
+def _is_retryable_model_error(exc: Exception) -> bool:
+    retryable = (
+        google_exceptions.DeadlineExceeded,
+        google_exceptions.ServiceUnavailable,
+        google_exceptions.ResourceExhausted,
+        google_exceptions.InternalServerError,
+        google_exceptions.Aborted,
+        google_exceptions.Unknown,
+    )
+    if isinstance(exc, retryable):
+        return True
+
+    message = str(exc).lower()
+    return (
+        "deadline" in message
+        or "timed out" in message
+        or "timeout" in message
+        or "temporarily unavailable" in message
+        or "resource exhausted" in message
+    )
 
 
 async def generate_insight(idea: str, context_bundle: ContextBundle) -> tuple[InsightOutput, float, int]:
@@ -89,7 +208,8 @@ async def generate_insight(idea: str, context_bundle: ContextBundle) -> tuple[In
     corrections: list[str] = []
 
     start = time.perf_counter()
-    last_error: Exception | None = None
+    last_validation_error: Exception | None = None
+    last_provider_error: Exception | None = None
 
     for attempt in range(settings.LLM_MAX_RETRIES):
         composed_prompt = prompt
@@ -97,9 +217,9 @@ async def generate_insight(idea: str, context_bundle: ContextBundle) -> tuple[In
             composed_prompt = f"{composed_prompt}\n\n" + "\n\n".join(corrections)
 
         try:
-            response = _call_gemma(composed_prompt)
+            response, model_used = _call_gemma(composed_prompt)
             response_text = _extract_text(response)
-            insight = InsightOutput.model_validate_json(response_text)
+            insight = InsightOutput.model_validate(_parse_json_payload(response_text))
 
             confidence = mean([doc.similarity_score for doc in context_bundle.docs]) if context_bundle.docs else 0.0
             insight.confidence_score = float(max(0.0, min(1.0, confidence)))
@@ -112,7 +232,7 @@ async def generate_insight(idea: str, context_bundle: ContextBundle) -> tuple[In
 
             logger.info(
                 "llm_call model=%s latency_ms=%.2f input_tokens=%s output_tokens=%s retry_count=%d",
-                settings.GEMMA_MODEL_NAME,
+                model_used,
                 latency_ms,
                 input_tokens,
                 output_tokens,
@@ -121,19 +241,42 @@ async def generate_insight(idea: str, context_bundle: ContextBundle) -> tuple[In
 
             return insight, float(latency_ms), attempt
         except (ValidationError, json.JSONDecodeError, ValueError) as exc:
-            last_error = exc
+            last_validation_error = exc
             corrections.append(
                 "Your previous response failed JSON validation.\n"
                 f"Error: {exc}\n"
                 "Respond with ONLY valid JSON matching this schema:\n"
                 f"{schema_json}"
             )
+        except Exception as exc:
+            if _is_retryable_model_error(exc):
+                last_provider_error = exc
+                logger.warning(
+                    "llm_provider_retry attempt=%d/%d reason=%s",
+                    attempt + 1,
+                    settings.LLM_MAX_RETRIES,
+                    exc,
+                )
+                continue
+            raise HTTPException(
+                status_code=502,
+                detail="LLM provider error while generating insight. Please try again.",
+            )
+
+    if last_provider_error is not None:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "LLM request timed out while generating insight. "
+                "Please retry, lower Top K, or shorten the idea text."
+            ),
+        )
 
     raise HTTPException(
         status_code=422,
         detail={
             "error": "LLM failed to produce valid structured output after retries",
-            "last_error": str(last_error),
+            "last_error": str(last_validation_error),
         },
     )
 
@@ -158,8 +301,8 @@ async def check_grounding(context_bundle: ContextBundle, insight: InsightOutput)
     )
 
     try:
-        response = _call_gemma(prompt)
-        payload = json.loads(_extract_text(response))
+        response, _ = _call_gemma(prompt)
+        payload = _parse_json_payload(_extract_text(response))
         verdict = str(payload.get("verdict", "unknown")).strip().lower()
         if verdict in {"grounded", "partial", "not_grounded"}:
             return verdict
@@ -196,9 +339,9 @@ async def regenerate_grounded_insight(
     for _ in range(2):
         composed_prompt = f"{prompt}\n\n" + "\n\n".join(corrections) if corrections else prompt
         try:
-            response = _call_gemma(composed_prompt)
+            response, _ = _call_gemma(composed_prompt)
             response_text = _extract_text(response)
-            repaired = InsightOutput.model_validate_json(response_text)
+            repaired = InsightOutput.model_validate(_parse_json_payload(response_text))
 
             confidence = mean([doc.similarity_score for doc in context_bundle.docs]) if context_bundle.docs else 0.0
             repaired.confidence_score = float(max(0.0, min(1.0, confidence)))

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
+import re
 
 import google.generativeai as genai
 
@@ -29,7 +30,68 @@ class RetrievedDoc:
 
 
 genai.configure(api_key=settings.GOOGLE_API_KEY)
-_retrieval_model = genai.GenerativeModel(settings.GEMMA_MODEL_NAME)
+_retrieval_model_cache: dict[str, genai.GenerativeModel] = {}
+
+
+def _candidate_model_names() -> list[str]:
+    names = [settings.GEMMA_MODEL_NAME]
+    fallback = settings.LLM_FALLBACK_MODEL_NAME.strip()
+    if fallback and fallback not in names:
+        names.append(fallback)
+    return names
+
+
+def _get_retrieval_model(model_name: str) -> genai.GenerativeModel:
+    model = _retrieval_model_cache.get(model_name)
+    if model is None:
+        model = genai.GenerativeModel(model_name)
+        _retrieval_model_cache[model_name] = model
+    return model
+
+
+def _request_options() -> dict | None:
+    timeout = int(settings.MODEL_REQUEST_TIMEOUT_SECONDS)
+    if timeout > 0:
+        return {"timeout": timeout}
+    return None
+
+
+def _generate_with_options(model: genai.GenerativeModel, prompt: str, generation_config: dict) -> object:
+    options = _request_options()
+    if options is None:
+        return model.generate_content(prompt, generation_config=generation_config)
+    return model.generate_content(
+        prompt,
+        generation_config=generation_config,
+        request_options=options,
+    )
+
+
+def _generate_json_response(prompt: str, temperature: float) -> object:
+    last_error: Exception | None = None
+
+    for model_name in _candidate_model_names():
+        model = _get_retrieval_model(model_name)
+        try:
+            return _generate_with_options(
+                model,
+                prompt,
+                {"temperature": temperature, "response_mime_type": "application/json"},
+            )
+        except Exception as exc:
+            try:
+                if "response_mime_type" in str(exc):
+                    return _generate_with_options(model, prompt, {"temperature": temperature})
+            except Exception as inner_exc:
+                exc = inner_exc
+
+            last_error = exc
+            logger.info("Retrieval LLM model fallback from '%s': %s", model_name, exc)
+            continue
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("No retrieval LLM model names configured")
 
 
 def _extract_text(response: object) -> str:
@@ -48,7 +110,63 @@ def _extract_text(response: object) -> str:
     return ""
 
 
+def _json_candidates(text: str) -> list[str]:
+    raw = (text or "").strip()
+    candidates: list[str] = []
+    if raw:
+        candidates.append(raw)
+
+    for block in re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", raw, flags=re.IGNORECASE):
+        block = block.strip()
+        if block:
+            candidates.append(block)
+
+    decoder = json.JSONDecoder()
+    for idx, ch in enumerate(raw):
+        if ch not in "[{":
+            continue
+        try:
+            _, end = decoder.raw_decode(raw[idx:])
+            snippet = raw[idx : idx + end].strip()
+            if snippet:
+                candidates.append(snippet)
+        except Exception:
+            continue
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = candidate.strip()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(key)
+    return unique
+
+
+def _parse_json_payload(text: str):
+    last_error: Exception | None = None
+    list_fallback = None
+    for candidate in _json_candidates(text):
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+            if list_fallback is None and isinstance(parsed, list):
+                list_fallback = parsed
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if list_fallback is not None:
+        return list_fallback
+
+    raise ValueError(f"No valid JSON payload found in model response: {last_error}")
+
+
 def _generate_query_variants(query: str) -> list[str]:
+    if settings.BYPASS_LLM_CALLS or not settings.ENABLE_QUERY_EXPANSION:
+        return [query]
+
     if settings.MULTI_QUERY_COUNT <= 1:
         return [query]
 
@@ -61,12 +179,8 @@ def _generate_query_variants(query: str) -> list[str]:
     )
 
     try:
-        response = _retrieval_model.generate_content(
-            prompt,
-            generation_config={"temperature": 0.2, "response_mime_type": "application/json"},
-            request_options={"timeout": 10},
-        )
-        payload = json.loads(_extract_text(response))
+        response = _generate_json_response(prompt, temperature=0.2)
+        payload = _parse_json_payload(_extract_text(response))
         generated = payload.get("queries", []) if isinstance(payload, dict) else []
         clean = [q.strip() for q in generated if isinstance(q, str) and q.strip()]
     except Exception as exc:
@@ -189,6 +303,9 @@ def _reciprocal_rank_fusion(ranked_lists: list[list[RetrievedDoc]], top_k: int) 
 
 
 def _grade_relevance(question: str, docs: list[RetrievedDoc]) -> list[RetrievedDoc]:
+    if settings.BYPASS_LLM_CALLS or not settings.ENABLE_RELEVANCE_GRADING:
+        return docs
+
     if not docs:
         return docs
 
@@ -206,12 +323,8 @@ def _grade_relevance(question: str, docs: list[RetrievedDoc]) -> list[RetrievedD
     )
 
     try:
-        response = _retrieval_model.generate_content(
-            prompt,
-            generation_config={"temperature": 0, "response_mime_type": "application/json"},
-            request_options={"timeout": 10},
-        )
-        payload = json.loads(_extract_text(response))
+        response = _generate_json_response(prompt, temperature=0)
+        payload = _parse_json_payload(_extract_text(response))
         raw_indices = payload.get("relevant_indices", []) if isinstance(payload, dict) else []
 
         relevant_indices = sorted(

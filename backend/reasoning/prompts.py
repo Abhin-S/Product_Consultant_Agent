@@ -11,6 +11,13 @@ CRITICAL RULES:
    Do NOT hallucinate, invent statistics, or add information not in the context.
 4. If fallback web sources are included, weight local knowledge base sources
    more heavily in your reasoning.
+5. News usage policy:
+   - IF case study coverage exists:
+     IGNORE news for reasoning.
+     USE news only for examples.
+   - IF case study coverage is weak:
+     USE news cautiously.
+     LABEL as low-confidence reasoning.
 """
 
 USER_PROMPT_TEMPLATE = """
@@ -25,5 +32,10 @@ Retrieved Context Documents ({doc_count} sources):
 Respond with ONLY the JSON object matching the required schema.
 """
 
-FALLBACK_NOTE = "Note: Web-sourced fallback documents are included. Prefer local KB sources."
-NO_FALLBACK_NOTE = "All documents retrieved from the local knowledge base."
+FALLBACK_NOTE = (
+   "Coverage signal: fallback web sources are included due to weak case-study coverage. "
+   "Use news cautiously and label the reasoning as low-confidence where applicable."
+)
+NO_FALLBACK_NOTE = (
+   "Coverage signal: case-study coverage exists. Ignore news for reasoning and use news only as examples."
+)

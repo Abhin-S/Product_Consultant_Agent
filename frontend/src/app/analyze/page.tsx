@@ -19,6 +19,29 @@ import {
 
 type AnalyzeUIState = "input" | "loading" | "insights" | "confirm" | "executing" | "feedback";
 
+function extractApiErrorMessage(err: any, fallback: string): string {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+
+  if (detail && typeof detail === "object") {
+    if (typeof detail.error === "string" && detail.error.trim()) {
+      return detail.error;
+    }
+    if (typeof detail.message === "string" && detail.message.trim()) {
+      return detail.message;
+    }
+  }
+
+  const message = err?.response?.data?.message;
+  if (typeof message === "string" && message.trim()) {
+    return message;
+  }
+
+  return fallback;
+}
+
 function AnalyzePageContent() {
   const searchParams = useSearchParams();
   const authStatus = useRequireAuth();
@@ -77,8 +100,7 @@ function AnalyzePageContent() {
       setAnalyzeResponse(response.data);
       setUiState("insights");
     } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      setError(typeof detail === "string" ? detail : "Failed to analyze idea.");
+      setError(extractApiErrorMessage(err, "Failed to analyze idea."));
       setUiState("input");
     }
   };
@@ -101,8 +123,7 @@ function AnalyzePageContent() {
       setExecutionResults(response.data);
       setUiState("feedback");
     } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      setError(typeof detail === "string" ? detail : "Execution failed.");
+      setError(extractApiErrorMessage(err, "Execution failed."));
       setUiState("confirm");
     }
   };
