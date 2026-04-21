@@ -124,6 +124,62 @@ def _build_context_text(bundle: ContextBundle) -> str:
     return "\n\n".join(lines)
 
 
+def _context_coverage_metrics(context_bundle: ContextBundle) -> dict[str, float | int]:
+    similarities = [max(0.0, float(doc.similarity_score)) for doc in context_bundle.docs]
+    max_similarity = max(similarities, default=0.0)
+    avg_similarity = mean(similarities) if similarities else 0.0
+    strong_doc_count = len([score for score in similarities if score >= settings.CONFIDENCE_THRESHOLD])
+
+    return {
+        "doc_count": len(similarities),
+        "strong_doc_count": strong_doc_count,
+        "max_similarity": round(max_similarity, 4),
+        "avg_similarity": round(avg_similarity, 4),
+        "local_tokens": int(context_bundle.local_tokens),
+        "dynamic_tokens": int(context_bundle.dynamic_tokens),
+        "total_tokens": int(context_bundle.total_tokens),
+        "confidence_threshold": float(settings.CONFIDENCE_THRESHOLD),
+    }
+
+
+def should_abstain_for_coverage(
+    context_bundle: ContextBundle,
+    *,
+    low_confidence: bool,
+    fallback_requested: bool,
+) -> tuple[bool, str, dict[str, float | int]]:
+    metrics = _context_coverage_metrics(context_bundle)
+
+    doc_count = int(metrics["doc_count"])
+    strong_doc_count = int(metrics["strong_doc_count"])
+    max_similarity = float(metrics["max_similarity"])
+    dynamic_tokens = int(metrics["dynamic_tokens"])
+
+    if doc_count == 0:
+        return True, "No retrievable context was found for this question.", metrics
+
+    if low_confidence and strong_doc_count == 0:
+        if fallback_requested and dynamic_tokens == 0:
+            return (
+                True,
+                (
+                    "Local retrieval confidence is below threshold, and fallback retrieval did not produce "
+                    "usable context."
+                ),
+                metrics,
+            )
+        return True, "Retrieved context confidence is below threshold for a reliable answer.", metrics
+
+    if max_similarity < (settings.CONFIDENCE_THRESHOLD * 0.75) and doc_count < settings.CRAG_MIN_RELEVANT_DOCS:
+        return (
+            True,
+            "Too few relevant context chunks are available to support a grounded answer.",
+            metrics,
+        )
+
+    return False, "", metrics
+
+
 def _clean_text(value: str) -> str:
     return " ".join((value or "").split()).strip()
 
@@ -138,7 +194,7 @@ def _truncate_text(value: str, max_len: int) -> str:
 def _short_title_from_idea(idea: str) -> str:
     cleaned = _clean_text(idea)
     if not cleaned:
-        return "Startup Idea"
+        return "Brand Strategy Decision"
 
     lowered = cleaned.lower()
     for prefix in ("build ", "create ", "develop ", "launch ", "design ", "start "):
@@ -148,7 +204,7 @@ def _short_title_from_idea(idea: str) -> str:
 
     candidate = _truncate_text(cleaned, 80).strip(" .,:;-")
     if not candidate:
-        return "Startup Idea"
+        return "Brand Strategy Decision"
     return candidate[0].upper() + candidate[1:]
 
 
@@ -180,9 +236,14 @@ def _derive_tags(idea: str, insight: InsightOutput) -> list[str]:
     source = " ".join(
         [
             idea,
-            insight.idea_summary,
+            insight.brand_diagnosis,
+            insight.market_insight,
+            insight.final_positioning,
+            insight.target_audience,
+            insight.chosen_strategy,
             " ".join(insight.opportunities),
-            " ".join(insight.recommendations),
+            " ".join(insight.suggested_positioning),
+            " ".join(insight.trade_offs),
         ]
     ).lower()
 
@@ -199,6 +260,10 @@ def _derive_tags(idea: str, insight: InsightOutput) -> list[str]:
         ("consumer", "b2c"),
         ("mobile", "mobile"),
         ("platform", "platform"),
+        ("position", "positioning"),
+        ("message", "messaging"),
+        ("trust", "trust"),
+        ("brand", "brand"),
     ]
 
     tags: list[str] = []
@@ -206,75 +271,178 @@ def _derive_tags(idea: str, insight: InsightOutput) -> list[str]:
         if keyword in source and tag not in tags:
             tags.append(tag)
 
-    if "strategy" not in tags:
-        tags.append("strategy")
+    if "brand-strategy" not in tags:
+        tags.append("brand-strategy")
     if "execution" not in tags:
         tags.append("execution")
 
     return tags[:8]
 
 
+def _ensure_decision_defaults(insight: InsightOutput) -> None:
+    if not _clean_text(insight.market_insight):
+        insight.market_insight = _truncate_text(insight.brand_diagnosis, 450)
+
+    if not insight.suggested_positioning:
+        insight.suggested_positioning = [
+            "Clarify a narrow promise for a specific audience before scaling messaging.",
+            "Lead with a concrete proof point instead of broad category language.",
+        ]
+
+    if not _clean_text(insight.target_audience):
+        insight.target_audience = "TODO: Define the first audience segment to prioritize."
+
+    if not _clean_text(insight.final_positioning):
+        insight.final_positioning = "TODO: Choose and refine one positioning statement."
+
+    if not _clean_text(insight.chosen_strategy):
+        insight.chosen_strategy = "TODO: Select one strategy path and commit to it for the next sprint."
+
+    if not insight.rejected_directions:
+        insight.rejected_directions = [
+            "Generic positioning for all users without a clear differentiator.",
+        ]
+
+    if not insight.trade_offs:
+        insight.trade_offs = [
+            "Narrow positioning improves clarity and conversion, but reduces initial reach.",
+        ]
+
+
+def build_insufficient_context_insight(idea: str, context_bundle: ContextBundle, reason: str) -> InsightOutput:
+    metrics = _context_coverage_metrics(context_bundle)
+    confidence = min(float(metrics["avg_similarity"]), 0.2)
+
+    insight = InsightOutput(
+        brand_diagnosis=(
+            f"Unable to answer reliably from the available corpus for this question: {idea[:220]}"
+        ),
+        market_insight=(
+            "I cannot provide a grounded recommendation because supporting evidence is insufficient. "
+            f"Reason: {reason}"
+        ),
+        suggested_positioning=[
+            "No strategic recommendation generated due to insufficient grounded evidence.",
+            "Please add domain-specific documents for this question and retry.",
+        ],
+        risks=[
+            "Any detailed recommendation now would likely be speculative or hallucinated.",
+            "Current context does not provide enough support for a confident answer.",
+        ],
+        opportunities=[
+            "Ingest additional documents directly related to this decision question.",
+            "Retry after corpus expansion or with a narrower, evidence-linked query.",
+        ],
+        final_positioning="Not provided due to insufficient evidence.",
+        target_audience="Not provided due to insufficient evidence.",
+        chosen_strategy="Not provided due to insufficient evidence.",
+        rejected_directions=["Proceeding with unsupported strategic decisions from weak context."],
+        trade_offs=["Abstaining avoids confident but ungrounded recommendations."],
+        actions=[
+            {
+                "type": "task",
+                "title": "Expand corpus coverage for this question",
+                "description": "Add and ingest domain-specific evidence, then rerun the analysis.",
+                "priority": "high",
+                "decision_type": "other",
+                "impact": "high",
+            }
+        ],
+        confidence_score=float(max(0.0, min(0.2, confidence))),
+    )
+    return _ensure_notion_format_outputs(idea, insight)
+
+
 def _build_notion_page_content(idea: str, insight: InsightOutput) -> str:
-    startup_idea = _truncate_text(idea, 350) or "No startup idea provided."
-    market_insight = _truncate_text(insight.idea_summary, 450) or "No market insight available."
+    _ensure_decision_defaults(insight)
 
-    strategy_lines = insight.recommendations[:2] or ["No strategy recommendation available."]
-    strategy_recommendation = " ".join(_clean_text(line) for line in strategy_lines)
+    market_insight = _truncate_text(
+        insight.market_insight or insight.brand_diagnosis,
+        450,
+    ) or "No market insight available."
 
-    risks = insight.risks or ["No major risks identified from retrieved context."]
-    opportunities = insight.opportunities or ["No opportunity areas identified from retrieved context."]
+    positioning = _truncate_text(
+        insight.suggested_positioning[0] if insight.suggested_positioning else insight.final_positioning,
+        320,
+    ) or "TODO: Define how this brand should be positioned."
+
+    differentiation = _truncate_text(
+        insight.suggested_positioning[1] if len(insight.suggested_positioning) > 1 else insight.chosen_strategy,
+        320,
+    ) or "TODO: Clarify the strongest reason users should choose this brand."
+
+    brand_narrative = _truncate_text(insight.chosen_strategy, 320)
+
+    risks = insight.risks or ["No major brand risks identified from retrieved context."]
+    opportunities = insight.opportunities or ["No clear opportunity areas identified from retrieved context."]
 
     tasks: list[str] = []
     for idx, action in enumerate(insight.actions[:5], start=1):
         task_text = _clean_text(action.title)
         if action.description:
             task_text = f"{task_text}: {_clean_text(action.description)}"
+        decision_label = str(action.decision_type).replace("_", " ").title()
+        meta = [f"Decision Type: {decision_label}", f"Impact: {action.impact.capitalize()}"]
+        task_text = f"{task_text} ({'; '.join(meta)})"
         tasks.append(f"* Task {idx}: {task_text}")
     if not tasks:
-        tasks.append("* Task 1: Define immediate next-step actions from available evidence")
-
-    takeaway_candidates = [
-        strategy_lines[0] if strategy_lines else "",
-        insight.opportunities[0] if insight.opportunities else "",
-        insight.risks[0] if insight.risks else "",
-    ]
-    key_takeaway = " ".join(_clean_text(item) for item in takeaway_candidates if _clean_text(item))
-    key_takeaway = _truncate_text(key_takeaway, 280) or "Execution should prioritize validated demand and measurable outcomes."
+        tasks.append("* Task 1: Define immediate next-step actions from selected decisions")
 
     lines: list[str] = [
-        "🚀 Startup Idea",
-        startup_idea,
+        "🎯 Target Audience",
+        _truncate_text(insight.target_audience, 320),
+        "",
+        "💡 Positioning",
+        positioning,
+        "",
+        "⚡ Differentiation",
+        differentiation,
+        "",
+        "🧠 Brand Narrative",
+        brand_narrative,
         "",
         "📊 Market Insight",
         market_insight,
         "",
-        "🧠 Strategy Recommendation",
-        strategy_recommendation,
-        "",
-        "⚠️ Risks & Challenges",
+        "⚠️ Risks",
     ]
 
     lines.extend(f"- {_truncate_text(item, 220)}" for item in risks[:6])
-    lines.extend(["", "📈 Opportunity Areas"])
+    lines.extend(["", "📈 Opportunities"])
     lines.extend(f"- {_truncate_text(item, 220)}" for item in opportunities[:6])
-    lines.extend(["", "🛠 Actionable Tasks"])
+    lines.extend(["", "✅ Final Positioning", _truncate_text(insight.final_positioning, 320)])
+    lines.extend(["", "❌ Rejected Directions"])
+    lines.extend(f"- {_truncate_text(item, 220)}" for item in insight.rejected_directions[:6])
+    lines.extend(["", "⚖️ Trade-offs"])
+    lines.extend(f"- {_truncate_text(item, 220)}" for item in insight.trade_offs[:6])
+    lines.extend(["", "🛠 Action Items"])
     lines.extend(tasks)
-    lines.extend(["", "📌 Key Takeaways", key_takeaway])
 
     return "\n".join(lines).strip()
 
 
 def _build_database_metadata(idea: str, insight: InsightOutput) -> NotionDatabaseMetadata:
+    _ensure_decision_defaults(insight)
+    primary_positioning = (
+        insight.final_positioning
+        or (insight.suggested_positioning[0] if insight.suggested_positioning else "")
+        or insight.brand_diagnosis
+        or idea
+    )
+
     return NotionDatabaseMetadata(
         name=_short_title_from_idea(idea),
-        idea_description=_truncate_text(insight.idea_summary or idea, 240),
-        risk_level=_infer_risk_level(insight),
+        brand_positioning=_truncate_text(primary_positioning, 240),
+        brand_risk_level=_infer_risk_level(insight),
         confidence_score=int(round(max(0.0, min(1.0, insight.confidence_score)) * 100)),
         tags=_derive_tags(idea, insight),
     )
 
 
 def _ensure_notion_format_outputs(idea: str, insight: InsightOutput) -> InsightOutput:
+    insight.brand_diagnosis = _truncate_text(insight.brand_diagnosis, 500) or "No brand diagnosis available."
+    _ensure_decision_defaults(insight)
+
     if not _clean_text(insight.notion_page_content):
         insight.notion_page_content = _build_notion_page_content(idea, insight)
     else:
@@ -285,10 +453,10 @@ def _ensure_notion_format_outputs(idea: str, insight: InsightOutput) -> InsightO
     else:
         metadata = insight.database_metadata
         metadata.name = _truncate_text(metadata.name, 120) or _short_title_from_idea(idea)
-        metadata.idea_description = _truncate_text(
-            metadata.idea_description,
+        metadata.brand_positioning = _truncate_text(
+            metadata.brand_positioning,
             300,
-        ) or _truncate_text(insight.idea_summary or idea, 240)
+        ) or _truncate_text(insight.final_positioning or insight.brand_diagnosis or idea, 240)
         metadata.confidence_score = int(max(0, min(100, metadata.confidence_score)))
         metadata.tags = [
             _truncate_text(tag, 40)
@@ -508,7 +676,7 @@ async def regenerate_grounded_insight(
         "If context is missing details, use cautious language and avoid fabricated specifics.\n"
         "Return ONLY valid JSON for this schema:\n"
         f"{schema_json}\n\n"
-        f"Startup Idea:\n{idea}\n\n"
+        f"Brand Decision Question:\n{idea}\n\n"
         f"Context Excerpts:\n{context_text}\n\n"
         f"Previous Answer JSON:\n{prior_insight.model_dump_json()}"
     )
@@ -537,36 +705,13 @@ async def regenerate_grounded_insight(
 
 def build_conservative_insight(idea: str, context_bundle: ContextBundle) -> InsightOutput:
     """
-    Produces a low-risk fallback response when the model remains ungrounded after repair.
+    Produces an explicit abstention response when a grounded answer cannot be produced.
     """
-    confidence = mean([doc.similarity_score for doc in context_bundle.docs]) if context_bundle.docs else 0.0
-    conservative_confidence = float(max(0.0, min(1.0, confidence * 0.6)))
-
-    insight = InsightOutput(
-        idea_summary=f"Initial review for: {idea[:220]}",
-        risks=[
-            "Retrieved evidence is insufficient to fully validate detailed risk claims.",
-            "Some high-impact assumptions may still require explicit supporting data.",
-        ],
-        opportunities=[
-            "Context indicates demand for deeper user and segment-specific validation.",
-            "Operational improvements can be prioritized once stronger evidence is collected.",
-        ],
-        recommendations=[
-            "Prioritize evidence collection from additional trusted product or market sources.",
-            "Re-run analysis after adding more domain-specific and recent context documents.",
-        ],
-        actions=[
-            {
-                "type": "task",
-                "title": "Collect supporting evidence",
-                "description": "Add more relevant documents and rerun grounded analysis.",
-                "priority": "high",
-            }
-        ],
-        confidence_score=conservative_confidence,
+    return build_insufficient_context_insight(
+        idea,
+        context_bundle,
+        "The generated answer could not be grounded to retrieved evidence.",
     )
-    return _ensure_notion_format_outputs(idea, insight)
 
 
 async def enforce_faithfulness(

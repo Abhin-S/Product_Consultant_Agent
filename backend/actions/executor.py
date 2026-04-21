@@ -43,31 +43,44 @@ class NotionExecutionContext:
 
 def _fallback_notion_content(actions: list[ActionItem]) -> str:
     lines = [
-        "🚀 Startup Idea",
-        "No structured idea narrative was available in the saved session output.",
+        "🎯 Target Audience",
+        "TODO: Define the first audience segment to prioritize.",
+        "",
+        "💡 Positioning",
+        "TODO: Define a clear brand position based on available evidence.",
+        "",
+        "⚡ Differentiation",
+        "TODO: Describe the strongest reason users should choose this brand.",
+        "",
+        "🧠 Brand Narrative",
+        "TODO: Craft a concise narrative that links audience pain to your differentiated promise.",
         "",
         "📊 Market Insight",
-        "This page was generated from executable action items.",
+        "This page was generated from executable action items due to missing structured analysis content.",
         "",
-        "🧠 Strategy Recommendation",
-        "Prioritize the tasks below based on urgency and expected impact.",
-        "",
-        "⚠️ Risks & Challenges",
+        "⚠️ Risks",
         "- Missing structured analysis details in session payload.",
         "",
-        "📈 Opportunity Areas",
+        "📈 Opportunities",
         "- Execute prioritized tasks and validate outcomes quickly.",
         "",
-        "🛠 Actionable Tasks",
+        "✅ Final Positioning",
+        "TODO: Confirm final positioning after review.",
+        "",
+        "❌ Rejected Directions",
+        "- TODO: Record which directions were rejected and why.",
+        "",
+        "⚖️ Trade-offs",
+        "- TODO: Capture trade-offs accepted in the final decision.",
+        "",
+        "🛠 Action Items",
     ]
     for idx, action in enumerate(actions, start=1):
-        lines.append(f"* Task {idx}: {action.title}: {action.description}")
+        decision_type = action.decision_type.replace("_", " ").title()
+        lines.append(
+            f"* Task {idx}: {action.title}: {action.description} (Decision Type: {decision_type}; Impact: {action.impact.capitalize()})"
+        )
 
-    lines.extend([
-        "",
-        "📌 Key Takeaways",
-        "Execution list was generated successfully; fill strategic narrative from latest analysis if needed.",
-    ])
     return "\n".join(lines)
 
 
@@ -215,6 +228,8 @@ async def execute_actions(
                         title=action.title,
                         description=action.description,
                         priority=action.priority,
+                        decision_type=action.decision_type,
+                        impact=action.impact,
                         insight_note_url=notion_insight_page_url,
                         session_reference=(notion_context.session_id if notion_context else None),
                     )

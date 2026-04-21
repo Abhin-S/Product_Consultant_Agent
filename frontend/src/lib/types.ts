@@ -3,20 +3,75 @@ export interface ActionItem {
   title: string;
   description: string;
   priority: "low" | "medium" | "high";
+  decision_type?:
+    | "positioning"
+    | "differentiation"
+    | "messaging"
+    | "trust"
+    | "audience"
+    | "pricing"
+    | "narrative"
+    | "other";
+  impact?: "low" | "medium" | "high";
+}
+
+export interface SessionConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface SessionChatTurn {
+  id: string;
+  user_message: string;
+  assistant_message: string;
+  insights: InsightOutput;
+  grounding_status?:
+    | "grounded"
+    | "partial"
+    | "not_grounded"
+    | "unknown"
+    | "not_requested"
+    | "bypassed"
+    | "insufficient_context";
+  faithfulness_corrected?: boolean;
+  used_fallback: boolean;
+  retrieval_diagnostics?: {
+    query_variants?: string[];
+    retrieved_before_crag?: number;
+    retrieved_after_crag?: number;
+    parent_context_docs?: number;
+  } | null;
+  created_at: string | null;
 }
 
 export interface InsightOutput {
-  idea_summary: string;
+  brand_diagnosis?: string;
+  market_insight?: string;
+  suggested_positioning?: string[];
   risks: string[];
   opportunities: string[];
-  recommendations: string[];
+  final_positioning?: string;
+  target_audience?: string;
+  chosen_strategy?: string;
+  rejected_directions?: string[];
+  trade_offs?: string[];
+
+  // Legacy compatibility
+  idea_summary?: string;
+  recommendations?: string[];
+
   actions: ActionItem[];
   confidence_score: number;
   notion_page_content?: string;
   database_metadata?: {
     name: string;
-    idea_description: string;
-    risk_level: "Low" | "Medium" | "High";
+    brand_positioning?: string;
+    brand_risk_level?: "Low" | "Medium" | "High";
+
+    // Legacy compatibility
+    idea_description?: string;
+    risk_level?: "Low" | "Medium" | "High";
+
     confidence_score: number;
     tags: string[];
   } | null;
@@ -46,7 +101,13 @@ export interface AnalyzeRequest {
 export interface AnalyzeResponse {
   session_id: string;
   insights: InsightOutput;
-  grounding_status?: "grounded" | "partial" | "not_grounded" | "unknown" | "not_requested";
+  grounding_status?:
+    | "grounded"
+    | "partial"
+    | "not_grounded"
+    | "unknown"
+    | "not_requested"
+    | "insufficient_context";
   faithfulness_corrected?: boolean;
   used_fallback: boolean;
   retrieved_sources: string[];
@@ -55,6 +116,18 @@ export interface AnalyzeResponse {
     retrieved_before_crag: number;
     retrieved_after_crag: number;
     parent_context_docs?: number;
+    coverage_metrics?: {
+      doc_count: number;
+      strong_doc_count: number;
+      max_similarity: number;
+      avg_similarity: number;
+      local_tokens: number;
+      dynamic_tokens: number;
+      total_tokens: number;
+      confidence_threshold: number;
+    };
+    abstained?: boolean;
+    abstain_reason?: string | null;
   };
   evaluation_status: "pending" | "skipped" | "not_requested";
   tier1_metrics: Tier1Metrics;
@@ -135,6 +208,19 @@ export interface EvaluationLog {
   created_at: string;
 }
 
+export interface SessionActionLog {
+  id: string;
+  action_type: string;
+  title: string;
+  description: string;
+  priority: string;
+  target_provider: string;
+  status: string;
+  external_id: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
 export interface SessionDetail {
   id: string;
   idea_text: string;
@@ -142,17 +228,45 @@ export interface SessionDetail {
   confidence_score: number;
   used_fallback: boolean;
   created_at: string;
+  conversation?: SessionConversationMessage[];
+  chat_turns?: SessionChatTurn[];
   evaluation_log: EvaluationLog | null;
-  action_logs: {
-    id: string;
-    action_type: string;
-    title: string;
-    description: string;
-    priority: string;
-    target_provider: string;
-    status: string;
-    external_id: string | null;
-    error_message: string | null;
-    created_at: string;
-  }[];
+  action_logs: SessionActionLog[];
+}
+
+export interface SessionChatResponse {
+  session_id: string;
+  insights: InsightOutput;
+  grounding_status?:
+    | "grounded"
+    | "partial"
+    | "not_grounded"
+    | "unknown"
+    | "not_requested"
+    | "bypassed"
+    | "insufficient_context";
+  faithfulness_corrected?: boolean;
+  used_fallback: boolean;
+  chat_turn?: SessionChatTurn;
+  evaluation_log?: EvaluationLog | null;
+  action_logs?: SessionActionLog[];
+  retrieval_diagnostics?: {
+    query_variants: string[];
+    retrieved_before_crag: number;
+    retrieved_after_crag: number;
+    parent_context_docs?: number;
+    coverage_metrics?: {
+      doc_count: number;
+      strong_doc_count: number;
+      max_similarity: number;
+      avg_similarity: number;
+      local_tokens: number;
+      dynamic_tokens: number;
+      total_tokens: number;
+      confidence_threshold: number;
+    };
+    abstained?: boolean;
+    abstain_reason?: string | null;
+  };
+  conversation: SessionConversationMessage[];
 }

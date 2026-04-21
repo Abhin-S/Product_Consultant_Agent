@@ -4,8 +4,188 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import api from "../../../lib/axios";
-import { SessionDetail } from "../../../lib/types";
+import { InsightOutput, SessionActionLog, SessionChatResponse, SessionChatTurn, SessionDetail } from "../../../lib/types";
 import useRequireAuth from "../../../lib/useRequireAuth";
+
+const INPUT_INSTRUCTION =
+  "Describe your product, target users, current positioning, and the problem you are facing...";
+
+function insightDiagnosis(insight: InsightOutput): string {
+  return (insight.brand_diagnosis || insight.idea_summary || "No diagnosis available.").trim();
+}
+
+function insightSuggestions(insight: InsightOutput): string[] {
+  if (Array.isArray(insight.suggested_positioning) && insight.suggested_positioning.length > 0) {
+    return insight.suggested_positioning;
+  }
+  if (Array.isArray(insight.recommendations) && insight.recommendations.length > 0) {
+    return insight.recommendations;
+  }
+  return [];
+}
+
+function InsightOutputPanel({ insight }: { insight: InsightOutput }) {
+  const diagnosis = insightDiagnosis(insight);
+  const suggestions = insightSuggestions(insight);
+  const risks = Array.isArray(insight.risks) ? insight.risks : [];
+  const opportunities = Array.isArray(insight.opportunities) ? insight.opportunities : [];
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Brand Diagnosis</p>
+        <p className="mt-2 text-sm text-slate-800">{diagnosis}</p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm">
+          <p className="font-semibold text-red-700">Risks</p>
+          <ul className="mt-2 space-y-2">
+            {risks.length === 0 ? (
+              <li className="rounded-md bg-white/80 p-2 text-slate-600">No explicit risks provided.</li>
+            ) : (
+              risks.map((item, idx) => (
+                <li key={idx} className="rounded-md bg-white/80 p-2">
+                  {item}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+
+        <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm">
+          <p className="font-semibold text-green-700">Opportunities</p>
+          <ul className="mt-2 space-y-2">
+            {opportunities.length === 0 ? (
+              <li className="rounded-md bg-white/80 p-2 text-slate-600">No explicit opportunities provided.</li>
+            ) : (
+              opportunities.map((item, idx) => (
+                <li key={idx} className="rounded-md bg-white/80 p-2">
+                  {item}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm">
+          <p className="font-semibold text-sky-700">Suggested Positioning</p>
+          <ul className="mt-2 space-y-2">
+            {suggestions.length === 0 ? (
+              <li className="rounded-md bg-white/80 p-2 text-slate-600">No suggested positioning provided.</li>
+            ) : (
+              suggestions.map((item, idx) => (
+                <li key={idx} className="rounded-md bg-white/80 p-2">
+                  {item}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+          <p className="font-semibold text-slate-700">Final Positioning</p>
+          <p className="mt-1 text-slate-800">{insight.final_positioning || "To be decided"}</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+          <p className="font-semibold text-slate-700">Target Audience</p>
+          <p className="mt-1 text-slate-800">{insight.target_audience || "To be decided"}</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+          <p className="font-semibold text-slate-700">Chosen Strategy</p>
+          <p className="mt-1 text-slate-800">{insight.chosen_strategy || "To be decided"}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EvaluationPanel({
+  evaluationLog,
+  ragasMessage,
+}: {
+  evaluationLog: SessionDetail["evaluation_log"];
+  ragasMessage: string;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evaluation</p>
+      {evaluationLog ? (
+        <>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <tbody>
+                <tr className="border-b">
+                  <td className="py-2 font-medium">Avg Similarity</td>
+                  <td>{evaluationLog.avg_similarity_score.toFixed(3)}</td>
+                </tr>
+                <tr className="border-b">
+                  <td className="py-2 font-medium">Docs Above Threshold</td>
+                  <td>{evaluationLog.docs_above_threshold}</td>
+                </tr>
+                <tr className="border-b">
+                  <td className="py-2 font-medium">Context Total Tokens</td>
+                  <td>{evaluationLog.context_total_tokens}</td>
+                </tr>
+                <tr className="border-b">
+                  <td className="py-2 font-medium">Fallback Used</td>
+                  <td>{evaluationLog.used_fallback ? "Yes" : "No"}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 font-medium">LLM Latency (ms)</td>
+                  <td>{evaluationLog.llm_latency_ms.toFixed(1)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-sm font-medium text-slate-700">RAGAS Status: {ragasMessage}</p>
+        </>
+      ) : (
+        <p className="mt-2 text-sm text-slate-600">No evaluation data for this session.</p>
+      )}
+    </div>
+  );
+}
+
+function ActionLogsPanel({ actionLogs }: { actionLogs: SessionActionLog[] }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Action Logs</p>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-slate-100 text-slate-700">
+            <tr>
+              <th className="px-2 py-2">Action</th>
+              <th className="px-2 py-2">Provider</th>
+              <th className="px-2 py-2">Status</th>
+              <th className="px-2 py-2">Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {actionLogs.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-2 py-2 text-slate-600">
+                  No actions executed yet.
+                </td>
+              </tr>
+            ) : (
+              actionLogs.map((log) => (
+                <tr key={log.id} className="border-t">
+                  <td className="px-2 py-2">{log.title}</td>
+                  <td className="px-2 py-2">{log.target_provider}</td>
+                  <td className="px-2 py-2">{log.status}</td>
+                  <td className="px-2 py-2">{new Date(log.created_at).toLocaleString()}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 export default function SessionDetailPage() {
   const params = useParams<{ id: string }>();
@@ -13,6 +193,10 @@ export default function SessionDetailPage() {
   const authStatus = useRequireAuth();
 
   const [session, setSession] = useState<SessionDetail | null>(null);
+  const [chatTurns, setChatTurns] = useState<SessionChatTurn[]>([]);
+  const [chatMessage, setChatMessage] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -23,6 +207,7 @@ export default function SessionDetailPage() {
       try {
         const response = await api.get<SessionDetail>(`/sessions/${params.id}`);
         setSession(response.data);
+        setChatTurns(response.data.chat_turns || []);
       } catch (err: any) {
         const detail = err?.response?.data?.detail;
         setError(typeof detail === "string" ? detail : "Failed to load session.");
@@ -45,6 +230,49 @@ export default function SessionDetailPage() {
     return "Completed";
   }, [session]);
 
+  const handleSendFollowUp = async () => {
+    const message = chatMessage.trim();
+    if (!message || !params.id || chatLoading) {
+      return;
+    }
+
+    setChatLoading(true);
+    setChatError("");
+
+    try {
+      const response = await api.post<SessionChatResponse>(`/sessions/${params.id}/chat`, {
+        message,
+        top_k: 5,
+        use_fallback: true
+      });
+
+      const data = response.data;
+      if (data.chat_turn) {
+        setChatTurns((previous) => [...previous, data.chat_turn as SessionChatTurn]);
+      }
+      setSession((previous) =>
+        previous
+          ? {
+              ...previous,
+              confidence_score: data.insights.confidence_score,
+              used_fallback: data.used_fallback,
+              evaluation_log: data.evaluation_log ?? previous.evaluation_log,
+              action_logs: data.action_logs ?? previous.action_logs,
+              chat_turns: data.chat_turn
+                ? [...(previous.chat_turns || []), (data.chat_turn as SessionChatTurn)]
+                : previous.chat_turns
+            }
+          : previous
+      );
+      setChatMessage("");
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      setChatError(typeof detail === "string" ? detail : "Failed to send follow-up question.");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   if (authStatus === "checking") {
     return <p className="text-sm text-slate-600">Checking authentication...</p>;
   }
@@ -61,142 +289,110 @@ export default function SessionDetailPage() {
     return <p>Session not found.</p>;
   }
 
-  const insight = session.raw_output;
+  const initialInsight = session.raw_output;
+  const latestInsightForExecution =
+    chatTurns.length > 0 ? chatTurns[chatTurns.length - 1].insights : initialInsight;
 
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
         <h1 className="mb-2 text-2xl font-bold">Session Detail</h1>
         <p className="text-sm text-slate-500">{new Date(session.created_at).toLocaleString()}</p>
-        <h2 className="mt-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Idea</h2>
+        <h2 className="mt-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Decision Question</h2>
         <p className="mt-1 whitespace-pre-wrap text-slate-800">{session.idea_text}</p>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
-        <h2 className="text-xl font-semibold">Insight Output</h2>
-        <p className="mt-2 rounded-xl bg-slate-50 p-4 text-slate-800">{insight.idea_summary}</p>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <div>
-            <h3 className="mb-2 font-semibold text-red-700">Risks</h3>
-            <ul className="space-y-2">
-              {insight.risks.map((risk, idx) => (
-                <li key={idx} className="rounded-lg bg-red-50 p-3 text-sm">
-                  {risk}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <h3 className="mb-2 font-semibold text-green-700">Opportunities</h3>
-            <ul className="space-y-2">
-              {insight.opportunities.map((opportunity, idx) => (
-                <li key={idx} className="rounded-lg bg-green-50 p-3 text-sm">
-                  {opportunity}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <h3 className="mb-2 font-semibold text-sky-700">Recommendations</h3>
-            <ul className="space-y-2">
-              {insight.recommendations.map((recommendation, idx) => (
-                <li key={idx} className="rounded-lg bg-blue-50 p-3 text-sm">
-                  {recommendation}
-                </li>
-              ))}
-            </ul>
-          </div>
+        <h2 className="text-xl font-semibold">Initial Insight Output</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          This is the baseline analysis from the original decision question.
+        </p>
+        <div className="mt-4">
+          <InsightOutputPanel insight={initialInsight} />
         </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
-        <h2 className="text-xl font-semibold">Evaluation</h2>
+        <h2 className="text-xl font-semibold">Session Chat</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Evaluation scores are for developer monitoring purposes.
+          Each follow-up response is rendered as a structured result card with Decision Question, Insight Output,
+          Evaluation, and Action Logs.
         </p>
 
-        {session.evaluation_log ? (
-          <>
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <tbody>
-                  <tr className="border-b">
-                    <td className="py-2 font-medium">Avg Similarity</td>
-                    <td>{session.evaluation_log.avg_similarity_score.toFixed(3)}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <td className="py-2 font-medium">Docs Above Threshold</td>
-                    <td>{session.evaluation_log.docs_above_threshold}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <td className="py-2 font-medium">Context Total Tokens</td>
-                    <td>{session.evaluation_log.context_total_tokens}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <td className="py-2 font-medium">Fallback Used</td>
-                    <td>{session.evaluation_log.used_fallback ? "Yes" : "No"}</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2 font-medium">LLM Latency (ms)</td>
-                    <td>{session.evaluation_log.llm_latency_ms.toFixed(1)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Instruction</p>
+          <p className="mt-1 text-sm text-slate-700">{INPUT_INSTRUCTION}</p>
+        </div>
 
-            <div className="mt-4 rounded-xl bg-slate-50 p-4">
-              <p className="text-sm font-semibold">RAGAS Status: {ragasMessage}</p>
-              {session.evaluation_log.ragas_eval_status === "completed" && (
-                <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
-                  <p>Context Precision: {session.evaluation_log.context_precision?.toFixed(3)}</p>
-                  <p>Context Recall: {session.evaluation_log.context_recall?.toFixed(3)}</p>
-                  <p>Faithfulness: {session.evaluation_log.faithfulness?.toFixed(3)}</p>
-                  <p>Answer Relevance: {session.evaluation_log.answer_relevance?.toFixed(3)}</p>
+        <div className="mt-4 space-y-4">
+          {chatTurns.length === 0 ? (
+            <p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              No follow-up messages yet. Start a conversation below.
+            </p>
+          ) : (
+            chatTurns.map((turn) => (
+              <article
+                key={turn.id}
+                className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+              >
+                <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Decision Question</p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{turn.user_message}</p>
                 </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <p className="mt-3 text-sm text-slate-600">No evaluation data for this session.</p>
-        )}
-      </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
-        <h2 className="text-xl font-semibold">Action Logs</h2>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-100">
-              <tr>
-                <th className="px-3 py-2">Action Title</th>
-                <th className="px-3 py-2">Provider</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">External ID</th>
-                <th className="px-3 py-2">Error</th>
-                <th className="px-3 py-2">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {session.action_logs.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-3 py-3">
-                    No actions executed yet.
-                  </td>
-                </tr>
-              ) : (
-                session.action_logs.map((log) => (
-                  <tr key={log.id} className="border-t">
-                    <td className="px-3 py-2">{log.title}</td>
-                    <td className="px-3 py-2">{log.target_provider}</td>
-                    <td className="px-3 py-2">{log.status}</td>
-                    <td className="px-3 py-2">{log.external_id || "-"}</td>
-                    <td className="px-3 py-2">{log.error_message || "-"}</td>
-                    <td className="px-3 py-2">{new Date(log.created_at).toLocaleString()}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-800">Assistant Response</p>
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">
+                        {turn.created_at ? new Date(turn.created_at).toLocaleString() : "Just now"}
+                      </span>
+                      {turn.grounding_status && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-900">
+                          Grounding: {turn.grounding_status}
+                        </span>
+                      )}
+                      {turn.faithfulness_corrected && (
+                        <span className="rounded-full bg-sky-100 px-2 py-1 text-sky-900">Faithfulness corrected</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    <InsightOutputPanel insight={turn.insights} />
+                    <EvaluationPanel evaluationLog={session.evaluation_log} ragasMessage={ragasMessage} />
+                    <ActionLogsPanel actionLogs={session.action_logs} />
+                  </div>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+
+        <div className="mt-4 space-y-2">
+          <label className="block text-sm font-medium">Follow-up Question</label>
+          <textarea
+            value={chatMessage}
+            onChange={(event) => setChatMessage(event.target.value)}
+            rows={4}
+            maxLength={1000}
+            className="w-full rounded-lg border border-slate-300 p-3 outline-none transition focus:border-sky"
+            placeholder={INPUT_INSTRUCTION}
+          />
+
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>{chatMessage.length}/1000</span>
+            <button
+              type="button"
+              onClick={handleSendFollowUp}
+              disabled={!chatMessage.trim() || chatLoading}
+              className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
+              {chatLoading ? "Sending..." : "Send Follow-up"}
+            </button>
+          </div>
+
+          {chatError && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{chatError}</p>}
         </div>
       </section>
 
@@ -206,7 +402,7 @@ export default function SessionDetailPage() {
             "prefillAnalyze",
             JSON.stringify({
               session_id: session.id,
-              insights: session.raw_output,
+              insights: latestInsightForExecution,
               used_fallback: session.used_fallback,
               tier1_metrics: session.evaluation_log
                 ? {

@@ -7,13 +7,32 @@ type Props = {
   usedFallback: boolean;
   evaluationStatus: "pending" | "skipped" | "not_requested";
   tier1Metrics: Tier1Metrics;
-  groundingStatus?: "grounded" | "partial" | "not_grounded" | "unknown" | "not_requested";
+  groundingStatus?:
+    | "grounded"
+    | "partial"
+    | "not_grounded"
+    | "unknown"
+    | "not_requested"
+    | "bypassed"
+    | "insufficient_context";
   faithfulnessCorrected?: boolean;
   retrievalDiagnostics?: {
     query_variants: string[];
     retrieved_before_crag: number;
     retrieved_after_crag: number;
     parent_context_docs?: number;
+    coverage_metrics?: {
+      doc_count: number;
+      strong_doc_count: number;
+      max_similarity: number;
+      avg_similarity: number;
+      local_tokens: number;
+      dynamic_tokens: number;
+      total_tokens: number;
+      confidence_threshold: number;
+    };
+    abstained?: boolean;
+    abstain_reason?: string | null;
   };
   onReview: () => void;
   onStartOver: () => void;
@@ -36,11 +55,38 @@ export default function InsightDisplay({
   onReview,
   onStartOver
 }: Props) {
+  const diagnosis = (insight.brand_diagnosis || insight.idea_summary || "No diagnosis available.").trim();
+  const marketInsight = (insight.market_insight || diagnosis).trim();
+  const suggestedPositioning =
+    (insight.suggested_positioning && insight.suggested_positioning.length > 0
+      ? insight.suggested_positioning
+      : insight.recommendations) || [];
+
+  const finalPositioning =
+    (insight.final_positioning || "To be decided in Notion decision section.").trim();
+  const targetAudience =
+    (insight.target_audience || "To be decided in Notion decision section.").trim();
+  const chosenStrategy =
+    (insight.chosen_strategy || "To be decided in Notion decision section.").trim();
+  const rejectedDirections =
+    (insight.rejected_directions && insight.rejected_directions.length > 0
+      ? insight.rejected_directions
+      : ["Capture rejected options in Notion to preserve decision context."]);
+  const tradeOffs =
+    (insight.trade_offs && insight.trade_offs.length > 0
+      ? insight.trade_offs
+      : ["Capture explicit trade-offs to make execution choices auditable."]);
+
+  const metadataPositioning =
+    insight.database_metadata?.brand_positioning || insight.database_metadata?.idea_description || "-";
+  const metadataRisk =
+    insight.database_metadata?.brand_risk_level || insight.database_metadata?.risk_level || "-";
+
   return (
     <section className="space-y-4">
       <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
-        <h2 className="text-xl font-semibold">Idea Summary</h2>
-        <p className="mt-2 rounded-xl bg-slate-50 p-4 text-slate-800">{insight.idea_summary}</p>
+        <h2 className="text-xl font-semibold">Brand Diagnosis</h2>
+        <p className="mt-2 rounded-xl bg-slate-50 p-4 text-slate-800">{diagnosis}</p>
 
         <div className="mt-4">
           <p className="mb-1 text-sm font-medium">Retrieval Confidence</p>
@@ -75,6 +121,105 @@ export default function InsightDisplay({
         </div>
       </article>
 
+      <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
+        <h3 className="text-lg font-semibold">Suggestions (AI)</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          AI suggestions are grounded in retrieved case studies. Use these to make explicit decisions.
+        </p>
+
+        <div className="mt-3 space-y-3">
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-700">Market Insight</p>
+            <p className="mt-1 text-sm text-slate-800">{marketInsight}</p>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-700">Suggested Positioning</p>
+            <ul className="mt-2 space-y-2 text-sm text-slate-800">
+              {suggestedPositioning.length > 0 ? (
+                suggestedPositioning.map((item, idx) => (
+                  <li key={idx} className="rounded-md bg-white/80 p-2">
+                    {item}
+                  </li>
+                ))
+              ) : (
+                <li className="rounded-md bg-white/80 p-2">No suggested positioning generated.</li>
+              )}
+            </ul>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+              <h4 className="mb-2 font-semibold text-red-700">Risks</h4>
+              <ul className="space-y-2 text-sm">
+                {insight.risks.map((item, idx) => (
+                  <li key={idx} className="rounded-md bg-white/70 p-2">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+              <h4 className="mb-2 font-semibold text-green-700">Opportunities</h4>
+              <ul className="space-y-2 text-sm">
+                {insight.opportunities.map((item, idx) => (
+                  <li key={idx} className="rounded-md bg-white/70 p-2">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
+        <h3 className="text-lg font-semibold">Decisions (User)</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          These fields should be finalized by you in Notion. Tasks should follow these decisions.
+        </p>
+
+        <div className="mt-3 grid gap-4 md:grid-cols-3">
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Final Positioning</p>
+            <p className="mt-2 text-sm text-slate-800">{finalPositioning}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Target Audience</p>
+            <p className="mt-2 text-sm text-slate-800">{targetAudience}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Chosen Strategy</p>
+            <p className="mt-2 text-sm text-slate-800">{chosenStrategy}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-sm font-semibold">Rejected Directions</p>
+            <ul className="mt-2 space-y-2 text-sm text-slate-700">
+              {rejectedDirections.map((item, idx) => (
+                <li key={idx} className="rounded-md bg-slate-50 p-2">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-sm font-semibold">Trade-offs</p>
+            <ul className="mt-2 space-y-2 text-sm text-slate-700">
+              {tradeOffs.map((item, idx) => (
+                <li key={idx} className="rounded-md bg-slate-50 p-2">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </article>
+
       {insight.notion_page_content && insight.notion_page_content.trim().length > 0 && (
         <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
           <h3 className="text-lg font-semibold">Notion Page Content (Primary)</h3>
@@ -95,10 +240,10 @@ export default function InsightDisplay({
               <span className="font-medium">Name:</span> {insight.database_metadata.name}
             </p>
             <p>
-              <span className="font-medium">Risk Level:</span> {insight.database_metadata.risk_level}
+              <span className="font-medium">Brand Risk Level:</span> {metadataRisk}
             </p>
             <p className="md:col-span-2">
-              <span className="font-medium">Idea Description:</span> {insight.database_metadata.idea_description}
+              <span className="font-medium">Brand Positioning:</span> {metadataPositioning}
             </p>
             <p>
               <span className="font-medium">Confidence Score:</span> {insight.database_metadata.confidence_score}
@@ -120,41 +265,6 @@ export default function InsightDisplay({
           </div>
         </article>
       )}
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <article className="rounded-2xl border border-red-200 bg-red-50 p-4">
-          <h3 className="mb-2 font-semibold text-red-700">⚠ Risks</h3>
-          <ul className="space-y-2 text-sm">
-            {insight.risks.map((item, idx) => (
-              <li key={idx} className="rounded-md bg-white/70 p-2">
-                {item}
-              </li>
-            ))}
-          </ul>
-        </article>
-
-        <article className="rounded-2xl border border-green-200 bg-green-50 p-4">
-          <h3 className="mb-2 font-semibold text-green-700">✓ Opportunities</h3>
-          <ul className="space-y-2 text-sm">
-            {insight.opportunities.map((item, idx) => (
-              <li key={idx} className="rounded-md bg-white/70 p-2">
-                {item}
-              </li>
-            ))}
-          </ul>
-        </article>
-
-        <article className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <h3 className="mb-2 font-semibold text-blue-700">💡 Recommendations</h3>
-          <ul className="space-y-2 text-sm">
-            {insight.recommendations.map((item, idx) => (
-              <li key={idx} className="rounded-md bg-white/70 p-2">
-                {item}
-              </li>
-            ))}
-          </ul>
-        </article>
-      </div>
 
       <details className="rounded-2xl border border-slate-200 bg-white/95 p-4 shadow">
         <summary className="cursor-pointer text-sm font-semibold">Tier 1 Metrics Summary</summary>
@@ -185,14 +295,17 @@ export default function InsightDisplay({
       </details>
 
       <article className="rounded-2xl border border-slate-200 bg-white/95 p-4 shadow">
-        <h3 className="font-semibold">Actions Preview</h3>
+        <h3 className="font-semibold">Execution (Actionable Tasks)</h3>
         <ul className="mt-2 space-y-2 text-sm">
           {insight.actions.map((action, idx) => (
             <li key={idx} className="flex items-center justify-between rounded-lg border border-slate-200 p-2">
-              <span>{action.title}</span>
-              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium">
-                {action.priority}
-              </span>
+              <div>
+                <p>{action.title}</p>
+                <p className="text-xs text-slate-500">
+                  {(action.decision_type || "other").replace("_", " ")} · impact {(action.impact || "medium")}
+                </p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium">{action.priority}</span>
             </li>
           ))}
         </ul>

@@ -53,7 +53,7 @@ export default function ExecutionFeedback({ results, onAnalyzeAnother }: Props) 
               )}
 
               {result.target_provider === "notion" && !result.insight_page_url && result.status === "executed" && (
-                <p className="mt-1 text-sm">Report page was not updated. Provide a Report Page ID in Integrations.</p>
+                <p className="mt-1 text-sm">Strategy page was not updated. Provide a Report Page ID in Integrations.</p>
               )}
             </article>
           ))
@@ -64,7 +64,7 @@ export default function ExecutionFeedback({ results, onAnalyzeAnother }: Props) 
         onClick={onAnalyzeAnother}
         className="rounded-lg bg-ink px-4 py-2 font-semibold text-white hover:bg-slate-800"
       >
-        Analyze Another Idea
+        Start New Decision
       </button>
     </section>
   );

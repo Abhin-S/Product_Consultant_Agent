@@ -8,6 +8,9 @@ type Props = {
   onSubmit: (payload: AnalyzeRequest) => void | Promise<void>;
 };
 
+const INPUT_INSTRUCTION =
+  "Describe your product, target users, current positioning, and the problem you are facing...";
+
 export default function IdeaInputForm({ onSubmit }: Props) {
   const [idea, setIdea] = useState("");
   const [useFallback, setUseFallback] = useState(true);
@@ -18,8 +21,9 @@ export default function IdeaInputForm({ onSubmit }: Props) {
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+
     await onSubmit({
-      idea,
+      idea: idea.trim(),
       use_fallback: useFallback,
       top_k: topK,
       run_evaluation: runEvaluation
@@ -28,14 +32,19 @@ export default function IdeaInputForm({ onSubmit }: Props) {
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
-      <h1 className="text-2xl font-bold">Analyze Product Idea</h1>
+      <h1 className="text-2xl font-bold">Diagnose a Brand Decision</h1>
       <p className="mt-1 text-sm text-slate-600">
-        Submit your startup concept to generate strategy insights and execution-ready tasks.
+        Ask a concrete brand decision question. The system will diagnose, recommend options, and surface trade-offs.
       </p>
+
+      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Instruction</p>
+        <p className="mt-1 text-sm text-slate-700">{INPUT_INSTRUCTION}</p>
+      </div>
 
       <form onSubmit={handleSubmit} className="mt-5 space-y-4">
         <label className="block">
-          <span className="mb-1 block text-sm font-medium">Startup Idea</span>
+          <span className="mb-1 block text-sm font-medium">Brand Decision Question</span>
           <textarea
             value={idea}
             onChange={(e) => setIdea(e.target.value)}
@@ -43,7 +52,7 @@ export default function IdeaInputForm({ onSubmit }: Props) {
             required
             rows={6}
             className="w-full rounded-lg border border-slate-300 p-3 outline-none transition focus:border-sky"
-            placeholder="Describe your product, target users, value proposition, and market assumptions..."
+            placeholder={INPUT_INSTRUCTION}
           />
           <span className="mt-1 block text-right text-xs text-slate-500">
             {idea.length}/{maxChars}
@@ -93,7 +102,7 @@ export default function IdeaInputForm({ onSubmit }: Props) {
           disabled={!idea.trim()}
           className="rounded-lg bg-ink px-4 py-2 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
         >
-          Analyze Idea
+          Diagnose Decision
         </button>
       </form>
     </section>

@@ -22,7 +22,13 @@ from evaluation.lightweight_metrics import (
 from evaluation.models import AnalysisSession, EvaluationLog
 from evaluation.ragas_evaluator import run_ragas_evaluation, should_run_ragas
 from ingestion.embedder import get_embedder_model
-from reasoning.llm_client import build_conservative_insight, enforce_faithfulness, generate_insight
+from reasoning.llm_client import (
+    build_conservative_insight,
+    build_insufficient_context_insight,
+    enforce_faithfulness,
+    generate_insight,
+    should_abstain_for_coverage,
+)
 from retrieval.fallback.context_builder import build_context_bundle
 from retrieval.fallback.dynamic_retriever import retrieve_dynamic_chunks
 from retrieval.retriever import retrieve_local
@@ -82,7 +88,19 @@ async def analyze_idea(
         )
 
     context_bundle = build_context_bundle(local_docs=local_docs, dynamic_chunks=dynamic_chunks)
-    if settings.BYPASS_LLM_CALLS:
+    should_abstain, abstain_reason, coverage_metrics = should_abstain_for_coverage(
+        context_bundle,
+        low_confidence=low_confidence,
+        fallback_requested=payload.use_fallback,
+    )
+
+    if should_abstain:
+        insight = build_insufficient_context_insight(payload.idea, context_bundle, abstain_reason)
+        latency_ms = 0.0
+        retry_count = 0
+        grounding_status = "insufficient_context"
+        faithfulness_corrected = False
+    elif settings.BYPASS_LLM_CALLS:
         insight = build_conservative_insight(payload.idea, context_bundle)
         latency_ms = 0.0
         retry_count = 0
@@ -107,6 +125,8 @@ async def analyze_idea(
             **insight.model_dump(),
             "_grounding_status": grounding_status,
             "_faithfulness_corrected": faithfulness_corrected,
+            "_coverage_metrics": coverage_metrics,
+            "_abstain_reason": abstain_reason if should_abstain else None,
         },
         confidence_score=insight.confidence_score,
         used_fallback=context_bundle.used_fallback,
@@ -196,6 +216,15 @@ async def analyze_idea(
 
     await db.commit()
 
+    enriched_retrieval_diagnostics = dict(retrieval_diagnostics)
+    enriched_retrieval_diagnostics.update(
+        {
+            "coverage_metrics": coverage_metrics,
+            "abstained": should_abstain,
+            "abstain_reason": abstain_reason if should_abstain else None,
+        }
+    )
+
     return {
         "session_id": str(session.id),
         "insights": insight,
@@ -203,7 +232,7 @@ async def analyze_idea(
         "faithfulness_corrected": faithfulness_corrected,
         "used_fallback": context_bundle.used_fallback,
         "retrieved_sources": sorted({doc.source for doc in context_bundle.docs}),
-        "retrieval_diagnostics": retrieval_diagnostics,
+        "retrieval_diagnostics": enriched_retrieval_diagnostics,
         "evaluation_status": evaluation_status,
         "tier1_metrics": tier1_metrics,
     }

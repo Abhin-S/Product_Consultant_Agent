@@ -100,7 +100,7 @@ function AnalyzePageContent() {
       setAnalyzeResponse(response.data);
       setUiState("insights");
     } catch (err: any) {
-      setError(extractApiErrorMessage(err, "Failed to analyze idea."));
+      setError(extractApiErrorMessage(err, "Failed to diagnose brand decision."));
       setUiState("input");
     }
   };
@@ -141,8 +141,8 @@ function AnalyzePageContent() {
       {uiState === "loading" && (
         <div className="rounded-2xl border border-slate-200 bg-white/90 p-8 text-center shadow">
           <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-300 border-t-ember" />
-          <p className="text-lg font-semibold">Analyzing your idea using Gemma 4...</p>
-          <p className="mt-1 text-sm text-slate-600">Retrieving relevant case studies...</p>
+          <p className="text-lg font-semibold">Diagnosing your brand decision using Gemma 4...</p>
+          <p className="mt-1 text-sm text-slate-600">Retrieving relevant brand case studies...</p>
         </div>
       )}
 

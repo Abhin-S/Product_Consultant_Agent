@@ -13,7 +13,7 @@ from database import Base
 # Ensure metadata imports are loaded for autogenerate
 from auth.models import User  # noqa: F401
 from integrations.models import UserIntegration  # noqa: F401
-from evaluation.models import ActionLog, AnalysisSession, EvaluationLog  # noqa: F401
+from evaluation.models import ActionLog, AnalysisSession, EvaluationLog, SessionChatTurn  # noqa: F401
 
 
 config = context.config

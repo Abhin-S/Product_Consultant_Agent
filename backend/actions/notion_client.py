@@ -183,7 +183,20 @@ def _divider_block() -> dict[str, Any]:
 
 
 def _lines_to_notion_blocks(content: str) -> list[dict[str, Any]]:
-    heading_prefixes = ("🚀", "📊", "🧠", "⚠", "📈", "🛠", "📌")
+    heading_prefixes = (
+        "🧾",
+        "🎯",
+        "💡",
+        "⚡",
+        "🧠",
+        "📊",
+        "⚠",
+        "📈",
+        "✅",
+        "❌",
+        "⚖",
+        "🛠",
+    )
 
     blocks: list[dict[str, Any]] = []
     for raw_line in (content or "").splitlines():
@@ -377,7 +390,7 @@ def append_notion_report_to_page(
 
     normalized_page_id = page_id.strip()
 
-    idea_name = "Startup Insight"
+    idea_name = "Brand Strategy"
     if isinstance(metadata, dict):
         maybe_name = str(metadata.get("name") or "").strip()
         if maybe_name:
@@ -387,19 +400,22 @@ def append_notion_report_to_page(
 
     created_at = datetime.now(timezone.utc).isoformat()
     children: list[dict[str, Any]] = [
-        _heading_block("Product Consultant Report"),
+        _heading_block("Brand Strategy Document"),
         _paragraph_block(f"Title: {title}"),
         _paragraph_block(f"Session ID: {session_id}"),
         _paragraph_block(f"Generated At: {created_at}"),
     ]
 
     if isinstance(metadata, dict):
-        risk_level = str(metadata.get("risk_level") or "").strip()
+        brand_positioning = str(metadata.get("brand_positioning") or metadata.get("idea_description") or "").strip()
+        risk_level = str(metadata.get("brand_risk_level") or metadata.get("risk_level") or "").strip()
         confidence = metadata.get("confidence_score")
         tags = metadata.get("tags")
 
+        if brand_positioning:
+            children.append(_paragraph_block(f"Brand Positioning: {brand_positioning}"))
         if risk_level:
-            children.append(_paragraph_block(f"Risk Level: {risk_level}"))
+            children.append(_paragraph_block(f"Brand Risk Level: {risk_level}"))
         if confidence is not None:
             children.append(_paragraph_block(f"Confidence Score: {confidence}"))
         if isinstance(tags, list) and tags:
@@ -451,6 +467,21 @@ def ensure_notion_task_schema(user_token: str, database_id: str) -> dict[str, st
         {"name": "High", "color": "red"},
         {"name": "Medium", "color": "yellow"},
         {"name": "Low", "color": "green"},
+    ]
+    impact_options = [
+        {"name": "High", "color": "red"},
+        {"name": "Medium", "color": "yellow"},
+        {"name": "Low", "color": "green"},
+    ]
+    decision_type_options = [
+        {"name": "Positioning", "color": "blue"},
+        {"name": "Differentiation", "color": "purple"},
+        {"name": "Messaging", "color": "orange"},
+        {"name": "Trust", "color": "pink"},
+        {"name": "Audience", "color": "green"},
+        {"name": "Pricing", "color": "red"},
+        {"name": "Narrative", "color": "brown"},
+        {"name": "Other", "color": "default"},
     ]
     status_options = [
         {"name": "To Do", "color": "default"},
@@ -552,6 +583,48 @@ def ensure_notion_task_schema(user_token: str, database_id: str) -> dict[str, st
                 )
                 _append_select_update(updates, priority_property, missing_priority_options)
 
+            decision_type_property = _find_property(
+                properties,
+                exact_name="Decision Type",
+                property_type="select",
+            )
+            if decision_type_property is None:
+                decision_type_property = _find_property(
+                    properties,
+                    contains_name="decision",
+                    property_type="select",
+                )
+            if decision_type_property is None:
+                decision_type_property = "Decision Type" if "Decision Type" not in properties else "Decision Category"
+                updates[decision_type_property] = {"select": {"options": decision_type_options}}
+            else:
+                missing_decision_type_options = _missing_options(
+                    _get_select_options(properties, decision_type_property),
+                    decision_type_options,
+                )
+                _append_select_update(updates, decision_type_property, missing_decision_type_options)
+
+            impact_property = _find_property(
+                properties,
+                exact_name="Impact",
+                property_type="select",
+            )
+            if impact_property is None:
+                impact_property = _find_property(
+                    properties,
+                    contains_name="impact",
+                    property_type="select",
+                )
+            if impact_property is None:
+                impact_property = "Impact" if "Impact" not in properties else "Expected Impact"
+                updates[impact_property] = {"select": {"options": impact_options}}
+            else:
+                missing_impact_options = _missing_options(
+                    _get_select_options(properties, impact_property),
+                    impact_options,
+                )
+                _append_select_update(updates, impact_property, missing_impact_options)
+
             status_property = _find_property(properties, exact_name="Status", property_type="select")
             status_type = "select"
             if status_property is None:
@@ -608,6 +681,8 @@ def ensure_notion_task_schema(user_token: str, database_id: str) -> dict[str, st
                 "insight_note": insight_note_property,
                 "session_id": session_id_property,
                 "priority": priority_property,
+                "decision_type": decision_type_property,
+                "impact": impact_property,
                 "status": status_property,
                 "status_type": status_type,
                 "status_default": status_default,
@@ -624,6 +699,8 @@ def create_notion_task(
     title: str,
     description: str,
     priority: str,
+    decision_type: str | None = None,
+    impact: str | None = None,
     insight_note_url: str | None = None,
     session_reference: str | None = None,
 ) -> str:
@@ -633,6 +710,27 @@ def create_notion_task(
     priority_value = "Medium"
     if normalized_priority in {"high", "medium", "low"}:
         priority_value = normalized_priority.capitalize()
+
+    normalized_impact = (impact or "").strip().lower()
+    impact_value = "Medium"
+    if normalized_impact in {"high", "medium", "low"}:
+        impact_value = normalized_impact.capitalize()
+
+    decision_type_map = {
+        "positioning": "Positioning",
+        "differentiation": "Differentiation",
+        "messaging": "Messaging",
+        "trust": "Trust",
+        "audience": "Audience",
+        "pricing": "Pricing",
+        "narrative": "Narrative",
+        "other": "Other",
+    }
+    normalized_decision_type = (decision_type or "").strip().lower().replace("_", " ")
+    decision_type_value = decision_type_map.get(
+        normalized_decision_type.replace(" ", ""),
+        decision_type_map.get(normalized_decision_type, "Other"),
+    )
 
     status_value_key = "status" if schema.get("status_type") == "status" else "select"
     status_value_name = schema.get("status_default") or "To Do"
@@ -645,6 +743,14 @@ def create_notion_task(
             schema["status"]: {status_value_key: {"name": status_value_name}},
         },
     }
+
+    decision_type_property = schema.get("decision_type")
+    if isinstance(decision_type_property, str):
+        payload["properties"][decision_type_property] = {"select": {"name": decision_type_value}}
+
+    impact_property = schema.get("impact")
+    if isinstance(impact_property, str):
+        payload["properties"][impact_property] = {"select": {"name": impact_value}}
 
     insight_note_property = schema.get("insight_note")
     if insight_note_url and isinstance(insight_note_property, str):

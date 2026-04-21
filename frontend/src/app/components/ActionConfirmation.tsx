@@ -88,7 +88,7 @@ export default function ActionConfirmation({ actions, onConfirmExecute, onCancel
       <header>
         <h2 className="text-xl font-semibold">Review Actions Before Execution</h2>
         <p className="text-sm text-slate-600">
-          These tasks will be created in your connected workspace.
+          These tasks should be executed after confirming your decisions in Notion.
         </p>
       </header>
 
@@ -119,6 +119,9 @@ export default function ActionConfirmation({ actions, onConfirmExecute, onCancel
                 <div>
                   <h3 className="font-semibold">{action.title}</h3>
                   <p className="mt-1 text-sm text-slate-700">{action.description}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {(action.decision_type || "other").replace("_", " ")} · impact {(action.impact || "medium")}
+                  </p>
                   <span className={`mt-2 inline-block rounded-full px-2 py-1 text-xs font-medium ${priorityClass}`}>
                     {action.priority}
                   </span>

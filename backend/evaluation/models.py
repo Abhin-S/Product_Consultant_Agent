@@ -25,6 +25,11 @@ class AnalysisSession(Base):
         "EvaluationLog", back_populates="session", cascade="all, delete-orphan", uselist=False
     )
     action_logs = relationship("ActionLog", back_populates="session", cascade="all, delete-orphan")
+    chat_turns = relationship(
+        "SessionChatTurn",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
 
 
 class EvaluationLog(Base):
@@ -86,3 +91,22 @@ class ActionLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
     session = relationship("AnalysisSession", back_populates="action_logs")
+
+
+class SessionChatTurn(Base):
+    __tablename__ = "session_chat_turns"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("analysis_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_message: Mapped[str] = mapped_column(Text, nullable=False)
+    assistant_message: Mapped[str] = mapped_column(Text, nullable=False)
+    insight_output: Mapped[dict] = mapped_column(JSON, nullable=False)
+    grounding_status: Mapped[str] = mapped_column(String(30), nullable=False, default="not_requested")
+    faithfulness_corrected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    used_fallback: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    retrieval_diagnostics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+    session = relationship("AnalysisSession", back_populates="chat_turns")

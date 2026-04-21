@@ -49,7 +49,7 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-        <div className="text-lg font-black tracking-tight">Product Consultant AI</div>
+        <div className="text-lg font-black tracking-tight">Brand Decision Assistant</div>
 
         <nav className="flex items-center gap-4 text-sm font-medium">
           <Link href="/analyze">Analyze</Link>
