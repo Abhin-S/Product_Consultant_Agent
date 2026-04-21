@@ -39,23 +39,25 @@ def embed_query(query: str) -> np.ndarray:
     return embed_texts([query])[0]
 
 
-def upsert_local_chunks(chunks: list[Chunk]) -> int:
+def upsert_local_chunks(chunks: list[Chunk], *, replace_existing_sources: bool = True) -> int:
     if not chunks:
         return 0
 
     collection = get_collection()
-    chunk_ids = [f"{chunk.source}_{chunk.chunk_index}" for chunk in chunks]
+    if replace_existing_sources:
+        sources = sorted({chunk.source for chunk in chunks if chunk.source})
+        for source in sources:
+            try:
+                collection.delete(where={"source": source})
+            except Exception:
+                continue
 
-    existing = collection.get(ids=chunk_ids, include=[])
-    existing_ids = set(existing.get("ids", []))
-
-    new_chunks = [chunk for chunk, chunk_id in zip(chunks, chunk_ids) if chunk_id not in existing_ids]
-    if not new_chunks:
+    if not chunks:
         return 0
 
     now = datetime.now(timezone.utc).isoformat()
-    new_ids = [f"{chunk.source}_{chunk.chunk_index}" for chunk in new_chunks]
-    new_docs = [chunk.text for chunk in new_chunks]
+    new_ids = [f"{chunk.source}_{chunk.chunk_index}" for chunk in chunks]
+    new_docs = [chunk.text for chunk in chunks]
     new_embeddings = embed_texts(new_docs).tolist()
     new_metadatas = [
         {
@@ -68,8 +70,8 @@ def upsert_local_chunks(chunks: list[Chunk]) -> int:
             "child_index": chunk.child_index,
             "chunk_type": chunk.chunk_type,
         }
-        for chunk in new_chunks
+        for chunk in chunks
     ]
 
     collection.upsert(ids=new_ids, documents=new_docs, embeddings=new_embeddings, metadatas=new_metadatas)
-    return len(new_chunks)
+    return len(chunks)

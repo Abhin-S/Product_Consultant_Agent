@@ -4,20 +4,47 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import api from "../../lib/axios";
-import { ActionItem, UserIntegrationOut } from "../../lib/types";
+import { ActionItem, DatabaseMetadataOverride, UserIntegrationOut } from "../../lib/types";
 
 type Props = {
   actions: ActionItem[];
-  onConfirmExecute: (target: "notion" | "jira" | "both", selectedIndices: number[]) => void;
+  initialNotionPageContent?: string;
+  initialDatabaseMetadata?: DatabaseMetadataOverride | null;
+  onConfirmExecute: (
+    target: "notion" | "jira" | "both",
+    selectedIndices: number[],
+    notionOverrides?: {
+      notion_page_content_override?: string;
+      database_metadata_override?: DatabaseMetadataOverride;
+    }
+  ) => void;
   onCancel: () => void;
 };
 
-export default function ActionConfirmation({ actions, onConfirmExecute, onCancel }: Props) {
+export default function ActionConfirmation({
+  actions,
+  initialNotionPageContent,
+  initialDatabaseMetadata,
+  onConfirmExecute,
+  onCancel,
+}: Props) {
   const [integrations, setIntegrations] = useState<UserIntegrationOut[]>([]);
   const [selectedIndices, setSelectedIndices] = useState<number[]>(actions.map((_, idx) => idx));
   const [target, setTarget] = useState<"notion" | "jira" | "both">("notion");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [notionPageContent, setNotionPageContent] = useState(initialNotionPageContent || "");
+  const [metadataName, setMetadataName] = useState(initialDatabaseMetadata?.name || "");
+  const [metadataPositioning, setMetadataPositioning] = useState(initialDatabaseMetadata?.brand_positioning || "");
+  const [metadataRisk, setMetadataRisk] = useState<"Low" | "Medium" | "High">(
+    initialDatabaseMetadata?.brand_risk_level || "Medium"
+  );
+  const [metadataConfidence, setMetadataConfidence] = useState<number>(
+    Number.isFinite(initialDatabaseMetadata?.confidence_score)
+      ? Number(initialDatabaseMetadata?.confidence_score)
+      : 50
+  );
+  const [metadataTags, setMetadataTags] = useState((initialDatabaseMetadata?.tags || []).join(", "));
 
   useEffect(() => {
     const loadIntegrations = async () => {
@@ -74,7 +101,24 @@ export default function ActionConfirmation({ actions, onConfirmExecute, onCancel
     setError("");
     setLoading(true);
     try {
-      await onConfirmExecute(target, selectedIndices.sort((a, b) => a - b));
+      const normalizedTags = metadataTags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 8);
+
+      const notionOverrides = {
+        notion_page_content_override: notionPageContent.trim(),
+        database_metadata_override: {
+          name: metadataName.trim(),
+          brand_positioning: metadataPositioning.trim(),
+          brand_risk_level: metadataRisk,
+          confidence_score: Math.max(0, Math.min(100, Math.round(metadataConfidence))),
+          tags: normalizedTags,
+        },
+      };
+
+      await onConfirmExecute(target, selectedIndices.sort((a, b) => a - b), notionOverrides);
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       setError(typeof detail === "string" ? detail : "Failed to execute actions.");
@@ -177,6 +221,81 @@ export default function ActionConfirmation({ actions, onConfirmExecute, onCancel
           <span>Both</span>
         </label>
       </fieldset>
+
+      <section className="space-y-3 rounded-xl border border-slate-200 p-3">
+        <h3 className="text-sm font-semibold">Edit Notion Content Before Execution</h3>
+        <p className="text-xs text-slate-600">
+          These edits are used when creating the Notion page and database entries.
+        </p>
+
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-slate-700">Notion Page Content</span>
+          <textarea
+            rows={8}
+            value={notionPageContent}
+            onChange={(event) => setNotionPageContent(event.target.value)}
+            className="w-full rounded-md border border-slate-300 p-2 text-sm"
+            placeholder="Edit the page content that will be appended to your Notion page"
+          />
+        </label>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-700">Metadata Name</span>
+            <input
+              type="text"
+              value={metadataName}
+              onChange={(event) => setMetadataName(event.target.value)}
+              className="w-full rounded-md border border-slate-300 p-2 text-sm"
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-700">Brand Risk Level</span>
+            <select
+              value={metadataRisk}
+              onChange={(event) => setMetadataRisk(event.target.value as "Low" | "Medium" | "High")}
+              className="w-full rounded-md border border-slate-300 p-2 text-sm"
+            >
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
+            </select>
+          </label>
+
+          <label className="block space-y-1 md:col-span-2">
+            <span className="text-xs font-medium text-slate-700">Brand Positioning</span>
+            <input
+              type="text"
+              value={metadataPositioning}
+              onChange={(event) => setMetadataPositioning(event.target.value)}
+              className="w-full rounded-md border border-slate-300 p-2 text-sm"
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-700">Confidence Score (0-100)</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={metadataConfidence}
+              onChange={(event) => setMetadataConfidence(Number(event.target.value || 0))}
+              className="w-full rounded-md border border-slate-300 p-2 text-sm"
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-slate-700">Tags (comma-separated)</span>
+            <input
+              type="text"
+              value={metadataTags}
+              onChange={(event) => setMetadataTags(event.target.value)}
+              className="w-full rounded-md border border-slate-300 p-2 text-sm"
+            />
+          </label>
+        </div>
+      </section>
 
       <div className="flex flex-wrap gap-3">
         <button

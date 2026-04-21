@@ -43,6 +43,7 @@ Yes, for frontend your understanding is correct: `npm install` then `npm run dev
 ## Notes
 
 - Chroma documents/chunks are created only after you run ingestion once.
+- Re-running ingestion now refreshes chunks for files included in the run (same source path), so updated files do not require manual Chroma deletion.
 - If Swagger auth is inconvenient with Google SSO-only login, run local ingestion from terminal: `& .\.venv\Scripts\python.exe ingest_local.py` (from `backend/`).
 - The root `.venv/` is not required for this setup path. The recommended Python environment is `backend/.venv`.
 - Authentication uses Google SSO only (`AUTH_MODE=google_sso`).
@@ -123,8 +124,47 @@ npm run dev
 3. Login at `http://localhost:3000/login` using "Continue with Google".
 4. Go to Analyze page and submit your first startup idea.
 5. Re-run ingestion only when corpus changes:
-	- Incremental update: `& .\.venv\Scripts\python.exe ingest_local.py`
-	- Full rebuild: `& .\.venv\Scripts\python.exe ingest_local.py --rebuild`
+	- Standard re-index (recommended for added/updated files): `& .\.venv\Scripts\python.exe ingest_local.py`
+	- Full rebuild (required for deleted/renamed files or schema/chunking changes): `& .\.venv\Scripts\python.exe ingest_local.py --rebuild`
+
+## Re-ingestion Playbook (After Corpus Expansion)
+
+If you added more case-study files (including subfolders), follow this:
+
+1. From `backend/`, activate environment and sync dependencies:
+
+```powershell
+& .\.venv\Scripts\Activate.ps1
+uv pip install --python .\.venv\Scripts\python.exe -r requirements.txt
+```
+
+2. Run standard re-index:
+
+```powershell
+& .\.venv\Scripts\python.exe ingest_local.py
+```
+
+What this does now:
+- Reloads all supported documents from `DOCS_DIR` recursively.
+- Rebuilds parent/child chunks for loaded sources.
+- Replaces existing local chunks for those sources in Chroma.
+- Replaces parent-store entries for those sources.
+
+When you should run full rebuild:
+- You deleted files from corpus and want removed content fully gone from index.
+- You renamed/moved many files (source path identity changed).
+- You changed chunk-size settings (`PARENT_*`/`CHILD_*`) and want a clean index.
+- You changed ingestion logic and want to eliminate any stale artifacts.
+
+Full rebuild command:
+
+```powershell
+& .\.venv\Scripts\python.exe ingest_local.py --rebuild
+```
+
+Do you need to manually delete Chroma DB files?
+- Usually no. Prefer `--rebuild`; it clears the collection and parent store safely.
+- Manual deletion should only be a last resort if Chroma state is corrupted.
 
 ## First Run Checklist
 

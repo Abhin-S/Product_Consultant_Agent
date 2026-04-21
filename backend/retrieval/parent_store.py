@@ -51,8 +51,23 @@ def get_parent_chunk(parent_id: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def save_parent_chunks(parents: list) -> int:
+def save_parent_chunks(parents: list, *, replace_existing_sources: bool = True) -> int:
     store = load_parent_store(force_reload=False)
+
+    if replace_existing_sources:
+        sources = {
+            getattr(parent, "source", "")
+            for parent in parents
+            if getattr(parent, "source", "")
+        }
+        if sources:
+            remove_ids = [
+                parent_id
+                for parent_id, payload in store.items()
+                if isinstance(payload, dict) and str(payload.get("source", "")) in sources
+            ]
+            for parent_id in remove_ids:
+                store.pop(parent_id, None)
 
     added = 0
     for parent in parents:

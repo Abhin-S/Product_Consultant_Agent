@@ -487,6 +487,15 @@ def _generate_with_options(model: genai.GenerativeModel, prompt: str, generation
     )
 
 
+def _json_mode_not_supported(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "response_mime_type" in msg
+        or "response mime type" in msg
+        or "json mode" in msg
+    )
+
+
 def _call_gemma(prompt: str) -> tuple[object, str]:
     generation_config = {
         "temperature": 0,
@@ -501,7 +510,7 @@ def _call_gemma(prompt: str) -> tuple[object, str]:
             return response, model_name
         except Exception as exc:
             try:
-                if "response_mime_type" in str(exc):
+                if _json_mode_not_supported(exc):
                     response = _generate_with_options(model, prompt, {"temperature": 0})
                     return response, model_name
             except Exception as inner_exc:

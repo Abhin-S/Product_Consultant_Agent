@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     # Evaluation
     EVAL_SAMPLE_RATE: int = 10
     RAGAS_TIMEOUT_SECONDS: int = 30
+    RAGAS_MAX_OUTPUT_TOKENS: int = 0
+    RAGAS_MAX_CONTEXT_DOCS: int = 4
+    RAGAS_CONTEXT_DOC_CHAR_LIMIT: int = 1800
+    RAGAS_ANSWER_CHAR_LIMIT: int = 3000
 
     # Frontend
     FRONTEND_URL: str = "http://localhost:3000"

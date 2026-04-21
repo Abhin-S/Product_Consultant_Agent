@@ -12,6 +12,7 @@ import useRequireAuth from "../../lib/useRequireAuth";
 import {
   AnalyzeRequest,
   AnalyzeResponse,
+  DatabaseMetadataOverride,
   ExecuteResponse,
   InsightOutput,
   Tier1Metrics
@@ -105,7 +106,14 @@ function AnalyzePageContent() {
     }
   };
 
-  const handleExecute = async (target: "notion" | "jira" | "both", selectedActionIndices: number[]) => {
+  const handleExecute = async (
+    target: "notion" | "jira" | "both",
+    selectedActionIndices: number[],
+    notionOverrides?: {
+      notion_page_content_override?: string;
+      database_metadata_override?: DatabaseMetadataOverride;
+    }
+  ) => {
     if (!analyzeResponse) {
       return;
     }
@@ -117,7 +125,9 @@ function AnalyzePageContent() {
       const response = await api.post<ExecuteResponse>("/execute", {
         session_id: analyzeResponse.session_id,
         target,
-        selected_action_indices: selectedActionIndices
+        selected_action_indices: selectedActionIndices,
+        notion_page_content_override: notionOverrides?.notion_page_content_override,
+        database_metadata_override: notionOverrides?.database_metadata_override,
       });
 
       setExecutionResults(response.data);
@@ -163,6 +173,8 @@ function AnalyzePageContent() {
       {uiState === "confirm" && analyzeResponse && (
         <ActionConfirmation
           actions={analyzeResponse.insights.actions}
+          initialNotionPageContent={analyzeResponse.insights.notion_page_content || ""}
+          initialDatabaseMetadata={analyzeResponse.insights.database_metadata || null}
           onConfirmExecute={handleExecute}
           onCancel={() => setUiState("insights")}
         />

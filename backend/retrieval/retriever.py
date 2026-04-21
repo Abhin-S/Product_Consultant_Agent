@@ -4,8 +4,10 @@ from dataclasses import dataclass
 import json
 import logging
 import re
+import time
 
 import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
 
 from config import settings
 from ingestion.embedder import embed_query
@@ -31,6 +33,7 @@ class RetrievedDoc:
 
 genai.configure(api_key=settings.GOOGLE_API_KEY)
 _retrieval_model_cache: dict[str, genai.GenerativeModel] = {}
+_retrieval_llm_cooldown_until: float = 0.0
 
 
 def _candidate_model_names() -> list[str]:
@@ -67,8 +70,114 @@ def _generate_with_options(model: genai.GenerativeModel, prompt: str, generation
     )
 
 
+def _json_mode_not_supported(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "response_mime_type" in msg
+        or "response mime type" in msg
+        or "json mode" in msg
+    )
+
+
+def _is_rate_limited_error(exc: Exception) -> bool:
+    if isinstance(exc, google_exceptions.ResourceExhausted):
+        return True
+
+    msg = str(exc).lower()
+    return (
+        "quota exceeded" in msg
+        or "rate limit" in msg
+        or "resource exhausted" in msg
+        or "429" in msg
+    )
+
+
+def _set_retrieval_llm_cooldown(exc: Exception) -> None:
+    global _retrieval_llm_cooldown_until
+
+    if not _is_rate_limited_error(exc):
+        return
+
+    msg = str(exc)
+    retry_seconds = 20.0
+    retry_match = re.search(r"retry in\s+([0-9]+(?:\.[0-9]+)?)s", msg, flags=re.IGNORECASE)
+    if retry_match:
+        try:
+            retry_seconds = max(float(retry_match.group(1)), 5.0)
+        except ValueError:
+            retry_seconds = 20.0
+
+    _retrieval_llm_cooldown_until = max(_retrieval_llm_cooldown_until, time.time() + retry_seconds)
+
+
+def _retrieval_llm_in_cooldown() -> bool:
+    return time.time() < _retrieval_llm_cooldown_until
+
+
+def _deterministic_query_variants(query: str, multi_query_count: int) -> list[str]:
+    """
+    Lightweight lexical fallback for query expansion when retrieval LLM helpers are unavailable.
+    """
+    normalized = " ".join((query or "").split())
+    if not normalized:
+        return []
+
+    variants: list[str] = [normalized]
+
+    unquoted = re.sub(r"[\"'`]", "", normalized).strip()
+    if unquoted and unquoted != normalized:
+        variants.append(unquoted)
+
+    parts = [
+        part.strip()
+        for part in re.split(r"(?i)\band\b|&|/|,", normalized)
+        if len(part.strip().split()) >= 2
+    ]
+    variants.extend(parts)
+
+    stopwords = {
+        "about",
+        "after",
+        "also",
+        "and",
+        "are",
+        "for",
+        "from",
+        "into",
+        "that",
+        "the",
+        "this",
+        "with",
+    }
+    tokens = re.findall(r"[A-Za-z0-9]+", normalized.lower())
+    condensed_tokens: list[str] = []
+    for token in tokens:
+        if len(token) <= 3 or token in stopwords:
+            continue
+        if token not in condensed_tokens:
+            condensed_tokens.append(token)
+    if condensed_tokens:
+        variants.append(" ".join(condensed_tokens[:10]))
+
+    variants.append(f"{normalized} case study")
+    variants.append(f"{normalized} brand strategy")
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for candidate in variants:
+        key = candidate.casefold()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+
+    return unique[: max(multi_query_count + 1, 1)]
+
+
 def _generate_json_response(prompt: str, temperature: float) -> object:
     last_error: Exception | None = None
+
+    if _retrieval_llm_in_cooldown():
+        raise RuntimeError("Retrieval helper LLM is in temporary cooldown after rate limiting")
 
     for model_name in _candidate_model_names():
         model = _get_retrieval_model(model_name)
@@ -80,11 +189,12 @@ def _generate_json_response(prompt: str, temperature: float) -> object:
             )
         except Exception as exc:
             try:
-                if "response_mime_type" in str(exc):
+                if _json_mode_not_supported(exc):
                     return _generate_with_options(model, prompt, {"temperature": temperature})
             except Exception as inner_exc:
                 exc = inner_exc
 
+            _set_retrieval_llm_cooldown(exc)
             last_error = exc
             logger.info("Retrieval LLM model fallback from '%s': %s", model_name, exc)
             continue
@@ -170,6 +280,9 @@ def _generate_query_variants(query: str) -> list[str]:
     if settings.MULTI_QUERY_COUNT <= 1:
         return [query]
 
+    if _retrieval_llm_in_cooldown():
+        return _deterministic_query_variants(query, settings.MULTI_QUERY_COUNT)
+
     prompt = (
         "You are a retrieval query rewriter for product strategy case studies.\n"
         "Generate diverse paraphrases to improve semantic retrieval coverage.\n"
@@ -185,7 +298,8 @@ def _generate_query_variants(query: str) -> list[str]:
         clean = [q.strip() for q in generated if isinstance(q, str) and q.strip()]
     except Exception as exc:
         logger.info("Query expansion fallback: %s", exc)
-        clean = []
+        deterministic = _deterministic_query_variants(query, settings.MULTI_QUERY_COUNT)
+        clean = deterministic[1:] if len(deterministic) > 1 else []
 
     unique: list[str] = []
     seen: set[str] = set()
@@ -309,6 +423,9 @@ def _grade_relevance(question: str, docs: list[RetrievedDoc]) -> list[RetrievedD
     if not docs:
         return docs
 
+    if _retrieval_llm_in_cooldown():
+        return docs
+
     docs_blob = "\n\n".join(
         f"[{idx}] source={doc.source}\n{doc.text[:1200]}" for idx, doc in enumerate(docs, start=1)
     )
@@ -335,6 +452,7 @@ def _grade_relevance(question: str, docs: list[RetrievedDoc]) -> list[RetrievedD
             }
         )
     except Exception as exc:
+        _set_retrieval_llm_cooldown(exc)
         logger.info("Relevance grading fallback: %s", exc)
         return docs
 

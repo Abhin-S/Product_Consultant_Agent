@@ -142,10 +142,20 @@ export interface ActionResult {
   insight_page_url?: string | null;
 }
 
+export interface DatabaseMetadataOverride {
+  name?: string;
+  brand_positioning?: string;
+  brand_risk_level?: "Low" | "Medium" | "High";
+  confidence_score?: number;
+  tags?: string[];
+}
+
 export interface ExecuteRequest {
   session_id: string;
   target: "notion" | "jira" | "both";
   selected_action_indices?: number[];
+  notion_page_content_override?: string;
+  database_metadata_override?: DatabaseMetadataOverride;
 }
 
 export type ExecuteResponse = ActionResult[];

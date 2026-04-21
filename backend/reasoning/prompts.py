@@ -63,6 +63,8 @@ CRITICAL RULES:
      "tags": ["optional", "categories"]
    }}
 14. Do not hallucinate beyond the provided analysis context.
+15. If context includes structured table rows, preserve key comparisons explicitly
+   (use concise bullet/table-like formatting in string fields without inventing values).
 """
 
 USER_PROMPT_TEMPLATE = """

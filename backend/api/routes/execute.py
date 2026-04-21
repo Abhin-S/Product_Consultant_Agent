@@ -13,7 +13,7 @@ from auth.models import User
 from database import get_db
 from evaluation.models import ActionLog, AnalysisSession
 from integrations.models import UserIntegration
-from reasoning.schema import ActionItem, InsightOutput
+from reasoning.schema import ActionItem, InsightOutput, NotionDatabaseMetadata
 
 
 router = APIRouter(tags=["execution"])
@@ -23,6 +23,8 @@ class ExecuteRequest(BaseModel):
     session_id: UUID
     target: str
     selected_action_indices: list[int] | None = None
+    notion_page_content_override: str | None = None
+    database_metadata_override: dict | None = None
 
 
 @router.post("/execute")
@@ -65,12 +67,33 @@ async def execute_session_actions(
                 detail=f"Please connect your {provider_label} account in /integrations before executing.",
             )
 
+    notion_page_content = (
+        payload.notion_page_content_override
+        if payload.notion_page_content_override is not None
+        else (insight.notion_page_content or "")
+    )
+
+    default_metadata = insight.database_metadata.model_dump() if insight.database_metadata is not None else None
+    merged_metadata = default_metadata
+    if payload.database_metadata_override is not None:
+        base = dict(default_metadata or {})
+        for key, value in payload.database_metadata_override.items():
+            if value is None:
+                continue
+            base[key] = value
+
+        try:
+            merged_metadata = NotionDatabaseMetadata.model_validate(base).model_dump()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid Notion metadata override payload: {exc}",
+            )
+
     notion_context = NotionExecutionContext(
         session_id=str(session.id),
-        notion_page_content=insight.notion_page_content or "",
-        database_metadata=(
-            insight.database_metadata.model_dump() if insight.database_metadata is not None else None
-        ),
+        notion_page_content=notion_page_content,
+        database_metadata=merged_metadata,
     )
 
     results = await execute_actions(

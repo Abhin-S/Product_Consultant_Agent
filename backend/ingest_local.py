@@ -43,8 +43,8 @@ def run_ingestion(docs_dir: str | None) -> dict:
         child_overlap=settings.CHILD_CHUNK_OVERLAP,
     )
 
-    parent_saved = save_parent_chunks(parents)
-    inserted = upsert_local_chunks(child_chunks)
+    parent_saved = save_parent_chunks(parents, replace_existing_sources=True)
+    inserted = upsert_local_chunks(child_chunks, replace_existing_sources=True)
     sources = sorted({doc.source for doc in preprocessed})
 
     return {
