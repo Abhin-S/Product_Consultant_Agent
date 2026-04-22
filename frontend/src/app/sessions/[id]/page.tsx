@@ -193,35 +193,6 @@ function EvaluationPanel({
             </table>
           </div>
           <p className="mt-3 text-sm font-medium text-slate-700">RAGAS Status: {ragasMessage}</p>
-          {evaluationLog.evaluation_notice && (
-            <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {evaluationLog.evaluation_notice}
-            </p>
-          )}
-          {evaluationLog.traditional_metrics && (
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <tbody>
-                  <tr className="border-b">
-                    <td className="py-2 font-medium">Recall@k</td>
-                    <td>{(evaluationLog.traditional_metrics.recall_at_k ?? 0).toFixed(3)}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <td className="py-2 font-medium">MAP@k</td>
-                    <td>{(evaluationLog.traditional_metrics.map_at_k ?? 0).toFixed(3)}</td>
-                  </tr>
-                  <tr className="border-b">
-                    <td className="py-2 font-medium">ROUGE-L F1</td>
-                    <td>{(evaluationLog.traditional_metrics.rouge_l_f1 ?? 0).toFixed(3)}</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2 font-medium">BERTScore F1</td>
-                    <td>{(evaluationLog.traditional_metrics.bertscore_f1 ?? 0).toFixed(3)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
         </>
       ) : (
         <p className="mt-2 text-sm text-slate-600">No evaluation data for this session.</p>
@@ -308,7 +279,6 @@ export default function SessionDetailPage() {
     if (status === "pending") return "Pending...";
     if (status === "skipped") return "Evaluation skipped";
     if (status === "failed") return "Evaluation failed";
-    if (status === "fallback_completed") return "RAGAS failed; benchmark fallback completed";
     return "Completed";
   }, [session]);
 

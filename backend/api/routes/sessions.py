@@ -47,30 +47,19 @@ def _serialize_insight_output(raw_insight: dict[str, Any] | None) -> dict[str, A
         return raw_insight
 
 
+def _normalize_ragas_status(status: str | None) -> str:
+    normalized = str(status or "").strip()
+    if normalized == "fallback_completed":
+        return "failed"
+    return normalized
+
+
 def _serialize_evaluation_log(eval_row: EvaluationLog | None) -> dict[str, Any] | None:
     if eval_row is None:
         return None
 
-    status = str(eval_row.ragas_eval_status or "")
-    is_traditional_fallback = status == "fallback_completed"
-
-    traditional_metrics = (
-        {
-            "recall_at_k": eval_row.context_precision,
-            "map_at_k": eval_row.context_recall,
-            "rouge_l_f1": eval_row.faithfulness,
-            "bertscore_f1": eval_row.answer_relevance,
-        }
-        if is_traditional_fallback
-        else None
-    )
-
-    evaluation_notice = (
-        "RAGAS evaluation failed for this session. Metrics shown are from the predefined benchmark query set "
-        "(traditional fallback), not from your exact question."
-        if is_traditional_fallback
-        else None
-    )
+    status = _normalize_ragas_status(eval_row.ragas_eval_status)
+    expose_ragas_metrics = status == "completed"
 
     return {
         "avg_similarity_score": eval_row.avg_similarity_score,
@@ -88,14 +77,12 @@ def _serialize_evaluation_log(eval_row: EvaluationLog | None) -> dict[str, Any] 
         "llm_latency_ms": eval_row.llm_latency_ms,
         "llm_retry_count": eval_row.llm_retry_count,
         "llm_validation_passed": eval_row.llm_validation_passed,
-        "context_precision": eval_row.context_precision,
-        "context_recall": eval_row.context_recall,
-        "faithfulness": eval_row.faithfulness,
-        "answer_relevance": eval_row.answer_relevance,
-        "ragas_eval_status": eval_row.ragas_eval_status,
-        "evaluation_mode": "traditional_fallback" if is_traditional_fallback else "ragas",
-        "evaluation_notice": evaluation_notice,
-        "traditional_metrics": traditional_metrics,
+        "context_precision": eval_row.context_precision if expose_ragas_metrics else None,
+        "context_recall": eval_row.context_recall if expose_ragas_metrics else None,
+        "faithfulness": eval_row.faithfulness if expose_ragas_metrics else None,
+        "answer_relevance": eval_row.answer_relevance if expose_ragas_metrics else None,
+        "ragas_eval_status": status,
+        "evaluation_mode": "ragas",
         "query": eval_row.query,
         "retrieved_docs": eval_row.retrieved_docs,
         "generated_output": eval_row.generated_output,
@@ -321,31 +308,28 @@ async def list_sessions(
                 ),
                 "ragas": (
                     {
-                        "status": eval_row.ragas_eval_status,
-                        "context_precision": eval_row.context_precision,
-                        "context_recall": eval_row.context_recall,
-                        "faithfulness": eval_row.faithfulness,
-                        "answer_relevance": eval_row.answer_relevance,
-                        "evaluation_mode": (
-                            "traditional_fallback"
-                            if eval_row.ragas_eval_status == "fallback_completed"
-                            else "ragas"
-                        ),
-                        "evaluation_notice": (
-                            "RAGAS failed; benchmark fallback metrics were used."
-                            if eval_row.ragas_eval_status == "fallback_completed"
+                        "status": _normalize_ragas_status(eval_row.ragas_eval_status),
+                        "context_precision": (
+                            eval_row.context_precision
+                            if _normalize_ragas_status(eval_row.ragas_eval_status) == "completed"
                             else None
                         ),
-                        "traditional_metrics": (
-                            {
-                                "recall_at_k": eval_row.context_precision,
-                                "map_at_k": eval_row.context_recall,
-                                "rouge_l_f1": eval_row.faithfulness,
-                                "bertscore_f1": eval_row.answer_relevance,
-                            }
-                            if eval_row.ragas_eval_status == "fallback_completed"
+                        "context_recall": (
+                            eval_row.context_recall
+                            if _normalize_ragas_status(eval_row.ragas_eval_status) == "completed"
                             else None
                         ),
+                        "faithfulness": (
+                            eval_row.faithfulness
+                            if _normalize_ragas_status(eval_row.ragas_eval_status) == "completed"
+                            else None
+                        ),
+                        "answer_relevance": (
+                            eval_row.answer_relevance
+                            if _normalize_ragas_status(eval_row.ragas_eval_status) == "completed"
+                            else None
+                        ),
+                        "evaluation_mode": "ragas",
                     }
                     if eval_row
                     else None

@@ -183,19 +183,12 @@ export interface Session {
   actions_taken: number;
   tier1_metrics?: Tier1Metrics | null;
   ragas?: {
-    status: "pending" | "skipped" | "completed" | "failed" | "fallback_completed" | string;
+    status: "pending" | "skipped" | "completed" | "failed" | string;
     context_precision: number | null;
     context_recall: number | null;
     faithfulness: number | null;
     answer_relevance: number | null;
-    evaluation_mode?: "ragas" | "traditional_fallback";
-    evaluation_notice?: string | null;
-    traditional_metrics?: {
-      recall_at_k: number | null;
-      map_at_k: number | null;
-      rouge_l_f1: number | null;
-      bertscore_f1: number | null;
-    } | null;
+    evaluation_mode?: "ragas";
   } | null;
 }
 
@@ -219,15 +212,8 @@ export interface EvaluationLog {
   context_recall: number | null;
   faithfulness: number | null;
   answer_relevance: number | null;
-  ragas_eval_status: "pending" | "skipped" | "completed" | "failed" | "fallback_completed" | string;
-  evaluation_mode?: "ragas" | "traditional_fallback";
-  evaluation_notice?: string | null;
-  traditional_metrics?: {
-    recall_at_k: number | null;
-    map_at_k: number | null;
-    rouge_l_f1: number | null;
-    bertscore_f1: number | null;
-  } | null;
+  ragas_eval_status: "pending" | "skipped" | "completed" | "failed" | string;
+  evaluation_mode?: "ragas";
   query: string;
   retrieved_docs: unknown[];
   generated_output: string;

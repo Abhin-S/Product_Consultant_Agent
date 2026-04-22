@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from evaluation.models import EvaluationLog
-from evaluation.traditional_evaluator import run_traditional_benchmark_evaluation
 
 
 logger = logging.getLogger(__name__)
@@ -379,36 +378,4 @@ async def run_ragas_evaluation(
             type(exc).__name__,
             exc,
         )
-        try:
-            traditional = await run_traditional_benchmark_evaluation()
-
-            eval_row_result = await db.execute(select(EvaluationLog).where(EvaluationLog.session_id == session_id))
-            eval_row = eval_row_result.scalar_one_or_none()
-            if eval_row is None:
-                return
-
-            # Reuse Tier-2 metric columns when RAGAS is unavailable.
-            # context_precision -> Recall@k
-            # context_recall -> MAP@k
-            # faithfulness -> ROUGE-L F1
-            # answer_relevance -> BERTScore F1
-            eval_row.context_precision = _to_metric_float(traditional.get("recall_at_k"))
-            eval_row.context_recall = _to_metric_float(traditional.get("map_at_k"))
-            eval_row.faithfulness = _to_metric_float(traditional.get("rouge_l_f1"))
-            eval_row.answer_relevance = _to_metric_float(traditional.get("bertscore_f1"))
-            eval_row.ragas_eval_status = "fallback_completed"
-
-            await db.commit()
-            logger.info(
-                "Traditional benchmark evaluation completed for session %s using '%s'",
-                session_id,
-                traditional.get("benchmark_name", "traditional_benchmark"),
-            )
-        except Exception as fallback_exc:
-            logger.error(
-                "Traditional fallback evaluation also failed for session %s: %s: %s",
-                session_id,
-                type(fallback_exc).__name__,
-                fallback_exc,
-            )
-            await _set_status(db, session_id, "failed")
+        await _set_status(db, session_id, "failed")
