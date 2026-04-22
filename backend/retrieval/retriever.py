@@ -29,6 +29,12 @@ class RetrievedDoc:
     parent_index: int | None = None
     child_index: int | None = None
     chunk_type: str = "chunk"
+    section: str = ""
+    pages: str = ""
+    has_table: bool = False
+    topic: str = ""
+    subtopic: str = ""
+    source_rel: str = ""
 
 
 genai.configure(api_key=settings.GOOGLE_API_KEY)
@@ -273,6 +279,20 @@ def _parse_json_payload(text: str):
     raise ValueError(f"No valid JSON payload found in model response: {last_error}")
 
 
+def _to_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.isdigit():
+            return int(stripped)
+    return None
+
+
 def _generate_query_variants(query: str) -> list[str]:
     if settings.BYPASS_LLM_CALLS or not settings.ENABLE_QUERY_EXPANSION:
         return [query]
@@ -312,6 +332,29 @@ def _generate_query_variants(query: str) -> list[str]:
     return unique[: max(settings.MULTI_QUERY_COUNT + 1, 1)]
 
 
+def _build_corrective_query_variants(query: str, existing_variants: list[str]) -> list[str]:
+    existing = {variant.casefold() for variant in existing_variants if variant}
+    candidates = _deterministic_query_variants(query, settings.MULTI_QUERY_COUNT + 4)
+    candidates.extend(
+        [
+            f"{query} case study evidence",
+            f"{query} brand positioning differentiation",
+            f"{query} pricing trust audience",
+        ]
+    )
+
+    expanded: list[str] = []
+    for candidate in candidates:
+        normalized = " ".join((candidate or "").split())
+        key = normalized.casefold()
+        if not normalized or key in existing:
+            continue
+        existing.add(key)
+        expanded.append(normalized)
+
+    return expanded[: max(settings.MULTI_QUERY_COUNT, 2)]
+
+
 def _retrieve_for_query(query: str, top_k: int) -> list[RetrievedDoc]:
     collection = get_collection()
     query_vector = embed_query(query)
@@ -329,20 +372,27 @@ def _retrieve_for_query(query: str, top_k: int) -> list[RetrievedDoc]:
 
     retrieved: list[RetrievedDoc] = []
     for chunk_id, text, metadata, distance in zip(ids, docs, metadatas, distances):
+        meta = metadata or {}
         similarity = 1.0 - float(distance)
-        parent_index = metadata.get("parent_index")
-        child_index = metadata.get("child_index")
+        parent_index = _to_int(meta.get("parent_index"))
+        child_index = _to_int(meta.get("child_index"))
         retrieved.append(
             RetrievedDoc(
                 text=text,
-                source=str(metadata.get("source", "unknown")),
+                source=str(meta.get("source", "unknown")),
                 similarity_score=similarity,
-                doc_type=str(metadata.get("doc_type", "local")),
+                doc_type=str(meta.get("doc_type", "local")),
                 chunk_id=chunk_id,
-                parent_id=str(metadata.get("parent_id")) if metadata.get("parent_id") else None,
-                parent_index=int(parent_index) if isinstance(parent_index, int) else None,
-                child_index=int(child_index) if isinstance(child_index, int) else None,
-                chunk_type=str(metadata.get("chunk_type", "chunk")),
+                parent_id=str(meta.get("parent_id")) if meta.get("parent_id") else None,
+                parent_index=parent_index,
+                child_index=child_index,
+                chunk_type=str(meta.get("chunk_type", "chunk")),
+                section=str(meta.get("section", "")),
+                pages=str(meta.get("pages", "")),
+                has_table=bool(meta.get("has_table", False)),
+                topic=str(meta.get("topic", "")),
+                subtopic=str(meta.get("subtopic", "")),
+                source_rel=str(meta.get("source_rel", "")),
             )
         )
 
@@ -353,22 +403,19 @@ def _reconstruct_parent_context(docs: list[RetrievedDoc], max_parents: int, top_
     if not docs:
         return docs
 
+    top_children = docs[: max(top_k, 1)]
     parent_candidates: dict[str, RetrievedDoc] = {}
-    passthrough_docs: list[RetrievedDoc] = []
 
-    for doc in docs:
+    for doc in top_children:
         if not doc.parent_id:
-            passthrough_docs.append(doc)
             continue
 
         parent_payload = get_parent_chunk(doc.parent_id)
         if not parent_payload:
-            passthrough_docs.append(doc)
             continue
 
         parent_text = str(parent_payload.get("text", "")).strip()
         if not parent_text:
-            passthrough_docs.append(doc)
             continue
 
         current = parent_candidates.get(doc.parent_id)
@@ -379,8 +426,14 @@ def _reconstruct_parent_context(docs: list[RetrievedDoc], max_parents: int, top_
             doc_type=doc.doc_type,
             chunk_id=f"parent::{doc.parent_id}",
             parent_id=doc.parent_id,
-            parent_index=parent_payload.get("parent_index"),
+            parent_index=_to_int(parent_payload.get("parent_index")),
             chunk_type="parent",
+            section=str(parent_payload.get("section", "")),
+            pages=str(parent_payload.get("pages", "")),
+            has_table=bool(parent_payload.get("has_table", False)),
+            topic=str(parent_payload.get("topic", doc.topic)),
+            subtopic=str(parent_payload.get("subtopic", doc.subtopic)),
+            source_rel=str(parent_payload.get("source_rel", doc.source_rel)),
         )
 
         if current is None or candidate.similarity_score > current.similarity_score:
@@ -390,10 +443,16 @@ def _reconstruct_parent_context(docs: list[RetrievedDoc], max_parents: int, top_
         parent_candidates.values(), key=lambda item: item.similarity_score, reverse=True
     )[:max_parents]
 
-    # Preserve non-hierarchical docs while preferring reconstructed parent context for child hits.
-    combined = ranked_parents + passthrough_docs
-    combined = sorted(combined, key=lambda item: item.similarity_score, reverse=True)
-    return combined[:top_k]
+    combined: list[RetrievedDoc] = []
+    seen: set[str] = set()
+    for doc in top_children + ranked_parents:
+        key = doc.chunk_id or f"{doc.source}:{hash(doc.text)}:{doc.chunk_type}"
+        if key in seen:
+            continue
+        seen.add(key)
+        combined.append(doc)
+
+    return combined
 
 
 def _reciprocal_rank_fusion(ranked_lists: list[list[RetrievedDoc]], top_k: int) -> list[RetrievedDoc]:
@@ -474,6 +533,27 @@ def retrieve_local(query: str, top_k: int) -> tuple[list[RetrievedDoc], bool, di
 
     fused_docs = _reciprocal_rank_fusion(ranked_lists, top_k=top_k)
     graded_docs = _grade_relevance(query, fused_docs)
+    initial_retrieved_before_crag = len(fused_docs)
+    initial_retrieved_after_crag = len(graded_docs)
+
+    corrective_pass_used = False
+    corrective_variants: list[str] = []
+    min_relevant_target = max(1, min(settings.CRAG_MIN_RELEVANT_DOCS, top_k))
+    if len(graded_docs) < min_relevant_target:
+        corrective_variants = _build_corrective_query_variants(query, query_variants)
+        corrective_lists: list[list[RetrievedDoc]] = []
+        for variant in corrective_variants:
+            try:
+                corrective_lists.append(_retrieve_for_query(variant, top_k=top_k))
+            except Exception as exc:
+                logger.warning("Corrective retrieval failed for variant '%s': %s", variant[:80], exc)
+
+        if corrective_lists:
+            widened_top_k = max(top_k + settings.MAX_PARENT_CONTEXT_CHUNKS, top_k)
+            fused_docs = _reciprocal_rank_fusion([fused_docs, *corrective_lists], top_k=widened_top_k)
+            graded_docs = _grade_relevance(query, fused_docs)
+            corrective_pass_used = True
+
     parent_docs = _reconstruct_parent_context(
         graded_docs,
         max_parents=max(settings.MAX_PARENT_CONTEXT_CHUNKS, 1),
@@ -485,8 +565,12 @@ def retrieve_local(query: str, top_k: int) -> tuple[list[RetrievedDoc], bool, di
 
     diagnostics = {
         "query_variants": query_variants,
-        "retrieved_before_crag": len(fused_docs),
+        "corrective_query_variants": corrective_variants,
+        "corrective_pass_used": corrective_pass_used,
+        "retrieved_before_crag": initial_retrieved_before_crag,
+        "retrieved_after_initial_crag": initial_retrieved_after_crag,
         "retrieved_after_crag": len(graded_docs),
+        "child_context_docs": len([doc for doc in parent_docs if doc.chunk_type != "parent"]),
         "parent_context_docs": len([doc for doc in parent_docs if doc.chunk_type == "parent"]),
     }
 

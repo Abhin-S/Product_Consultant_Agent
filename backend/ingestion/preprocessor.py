@@ -55,5 +55,11 @@ def preprocess_documents(documents: list[Document]) -> list[Document]:
     for doc in documents:
         text = preprocess_text(doc.text)
         if text:
-            processed.append(Document(text=text, source=doc.source))
+            processed.append(
+                Document(
+                    text=text,
+                    source=doc.source,
+                    metadata=dict(doc.metadata),
+                )
+            )
     return processed

@@ -9,52 +9,50 @@ CRITICAL RULES:
 {schema}
 3. Ground ALL claims strictly in the provided documents.
    Do NOT hallucinate, invent statistics, or add information not in the context.
-4. If fallback web sources are included, weight local knowledge base sources
+   For major factual claims, append short evidence tags where available,
+   for example: [source=..., pages=...].
+4. Use child chunks for specific claims and parent chunks for broader framing.
+   If child and parent signals conflict, prioritize the child evidence.
+5. If fallback web sources are included, weight local knowledge base sources
    more heavily in your reasoning.
-5. News usage policy:
+6. News usage policy:
    - IF case study coverage exists:
      IGNORE news for reasoning.
      USE news only for examples.
    - IF case study coverage is weak:
      USE news cautiously.
      LABEL as low-confidence reasoning.
-6. Apply this operating model:
+7. Apply this operating model:
    - AI suggests.
    - User decides.
    - System executes.
-7. The output must explicitly separate:
+8. The output must explicitly separate:
    - Suggestions: market_insight, suggested_positioning, risks, opportunities
    - Decisions: final_positioning, target_audience, chosen_strategy,
      rejected_directions, trade_offs
    - Execution: actions derived from the selected decisions
-8. Unless the user explicitly narrows scope to one decision type, cover all core decision dimensions:
-   positioning, differentiation, messaging, trust, audience, pricing, narrative.
-9. If the context is insufficient or out-of-domain for the question:
+9. Keep the JSON schema fixed across all responses: always return all schema keys.
+   If a field is not relevant to the user's query, set that field to null.
+10. Do NOT force every decision dimension on every query.
+    Populate only dimensions supported by retrieved evidence for this query.
+    Example: if pricing is asked, pricing-related fields can be populated while
+    unrelated dimensions remain null.
+11. If the context is insufficient or out-of-domain for the question:
    - Explicitly state that you cannot answer reliably from available evidence.
    - Do not fabricate specifics.
    - Return cautionary placeholders instead of confident recommendations.
-10. You must also produce Notion-ready formatting outputs in the JSON fields:
+12. You must also produce Notion-ready formatting outputs in the JSON fields:
    - notion_page_content
    - database_metadata
-11. notion_page_content must use this exact section order and headings:
-   🎯 Target Audience
-   💡 Positioning
-   ⚡ Differentiation
-   🧠 Brand Narrative
-   📊 Market Insight
-   ⚠️ Risks
-   📈 Opportunities
-   ✅ Final Positioning
-   ❌ Rejected Directions
-   ⚖️ Trade-offs
-   🛠 Action Items
-12. Formatting constraints for notion_page_content:
+13. notion_page_content should include only sections with non-null content.
+    Skip sections that are null or unsupported by evidence.
+14. Formatting constraints for notion_page_content:
    - Short paragraphs (2-4 lines max)
    - Use bullets where possible
    - Remove redundancy
    - Professional consulting-report tone
    - Do not include raw reasoning chain
-13. database_metadata must include concise normalized values:
+15. database_metadata must include concise normalized values:
    {{
      "name": "short title",
      "brand_positioning": "1-2 lines",
@@ -62,8 +60,9 @@ CRITICAL RULES:
      "confidence_score": 0-100 integer,
      "tags": ["optional", "categories"]
    }}
-14. Do not hallucinate beyond the provided analysis context.
-15. If context includes structured table rows, preserve key comparisons explicitly
+16. database_metadata fields may be null when not applicable.
+17. Do not hallucinate beyond the provided analysis context.
+18. If context includes structured table rows, preserve key comparisons explicitly
    (use concise bullet/table-like formatting in string fields without inventing values).
 """
 

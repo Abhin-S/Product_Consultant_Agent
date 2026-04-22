@@ -115,7 +115,11 @@ export default function SessionsPage() {
                   <td className="px-4 py-3">{new Date(session.created_at).toLocaleString()}</td>
                   <td className="px-4 py-3">{session.idea_text.slice(0, 60)}</td>
                   <td className="px-4 py-3">{(session.confidence_score ?? 0).toFixed(2)}</td>
-                  <td className="px-4 py-3">{session.ragas?.status || "not_requested"}</td>
+                  <td className="px-4 py-3">
+                    {session.ragas?.status === "fallback_completed"
+                      ? "benchmark_fallback"
+                      : session.ragas?.status || "not_requested"}
+                  </td>
                   <td className="px-4 py-3">{session.actions_taken}</td>
                   <td className="px-4 py-3 text-right">
                     <button

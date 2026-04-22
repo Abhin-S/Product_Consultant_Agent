@@ -79,7 +79,22 @@ def save_parent_chunks(parents: list, *, replace_existing_sources: bool = True) 
             "text": getattr(parent, "text", ""),
             "source": getattr(parent, "source", "unknown"),
             "parent_index": int(getattr(parent, "parent_index", 0)),
+            "section": str(getattr(parent, "section", "")),
+            "pages": str(getattr(parent, "pages", "")),
+            "has_table": bool(getattr(parent, "has_table", False)),
         }
+
+        extra_metadata = getattr(parent, "extra_metadata", {})
+        if isinstance(extra_metadata, dict):
+            for raw_key, value in extra_metadata.items():
+                key = str(raw_key)
+                if key in entry or value is None:
+                    continue
+                if isinstance(value, bool):
+                    entry[key] = value
+                    continue
+                if isinstance(value, (str, int, float)):
+                    entry[key] = value
 
         if parent_id not in store:
             added += 1

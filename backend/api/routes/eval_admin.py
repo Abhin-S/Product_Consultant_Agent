@@ -62,9 +62,35 @@ async def get_eval_summary(
         )
         .select_from(EvaluationLog)
         .join(AnalysisSession, EvaluationLog.session_id == AnalysisSession.id)
-        .where(AnalysisSession.user_id == current_user.id)
+        .where(
+            AnalysisSession.user_id == current_user.id,
+            EvaluationLog.ragas_eval_status == "completed",
+        )
     )
     avg_context_precision, avg_context_recall, avg_faithfulness, avg_answer_relevance = ragas_avgs_q.one()
+
+    traditional_avgs_q = await db.execute(
+        select(
+            func.avg(EvaluationLog.context_precision),
+            func.avg(EvaluationLog.context_recall),
+            func.avg(EvaluationLog.faithfulness),
+            func.avg(EvaluationLog.answer_relevance),
+            func.count(EvaluationLog.id),
+        )
+        .select_from(EvaluationLog)
+        .join(AnalysisSession, EvaluationLog.session_id == AnalysisSession.id)
+        .where(
+            AnalysisSession.user_id == current_user.id,
+            EvaluationLog.ragas_eval_status == "fallback_completed",
+        )
+    )
+    (
+        avg_recall_at_k,
+        avg_map_at_k,
+        avg_rouge_l_f1,
+        avg_bertscore_f1,
+        fallback_eval_sessions,
+    ) = traditional_avgs_q.one()
 
     return {
         "total_sessions": int(total_sessions or 0),
@@ -79,6 +105,13 @@ async def get_eval_summary(
             "avg_context_recall": float(avg_context_recall) if avg_context_recall is not None else None,
             "avg_faithfulness": float(avg_faithfulness) if avg_faithfulness is not None else None,
             "avg_answer_relevance": float(avg_answer_relevance) if avg_answer_relevance is not None else None,
+        },
+        "traditional_scores": {
+            "sessions": int(fallback_eval_sessions or 0),
+            "avg_recall_at_k": float(avg_recall_at_k) if avg_recall_at_k is not None else None,
+            "avg_map_at_k": float(avg_map_at_k) if avg_map_at_k is not None else None,
+            "avg_rouge_l_f1": float(avg_rouge_l_f1) if avg_rouge_l_f1 is not None else None,
+            "avg_bertscore_f1": float(avg_bertscore_f1) if avg_bertscore_f1 is not None else None,
         },
     }
 
@@ -156,6 +189,22 @@ async def list_eval_sessions(
             "faithfulness": row.faithfulness,
             "answer_relevance": row.answer_relevance,
             "ragas_eval_status": row.ragas_eval_status,
+            "evaluation_mode": "traditional_fallback" if row.ragas_eval_status == "fallback_completed" else "ragas",
+            "evaluation_notice": (
+                "RAGAS evaluation failed; metrics were computed on predefined benchmark queries."
+                if row.ragas_eval_status == "fallback_completed"
+                else None
+            ),
+            "traditional_metrics": (
+                {
+                    "recall_at_k": row.context_precision,
+                    "map_at_k": row.context_recall,
+                    "rouge_l_f1": row.faithfulness,
+                    "bertscore_f1": row.answer_relevance,
+                }
+                if row.ragas_eval_status == "fallback_completed"
+                else None
+            ),
             "query": row.query,
             "retrieved_docs": row.retrieved_docs,
             "generated_output": row.generated_output,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import re
 
 import tiktoken
 
@@ -23,6 +24,10 @@ class Chunk:
     parent_index: int | None = None
     child_index: int | None = None
     chunk_type: str = "chunk"
+    section: str = ""
+    pages: str = ""
+    has_table: bool = False
+    extra_metadata: dict[str, str | int | float | bool] = field(default_factory=dict)
 
 
 @dataclass
@@ -31,6 +36,56 @@ class ParentChunk:
     source: str
     parent_index: int
     text: str
+    section: str = ""
+    pages: str = ""
+    has_table: bool = False
+    extra_metadata: dict[str, str | int | float | bool] = field(default_factory=dict)
+
+
+SECTION_PATTERNS = [
+    r"(?:Chapter|CHAPTER)\s+[IVX\d]+[.:\s\-]+(.+)",
+    r"(?:Part|PART)\s+[A-Z\d]+[.:\s\-]+(.+)",
+    r"(?:Section|SECTION)\s+\d+[.:\s\-]+(.+)",
+    r"(?:Clause|CLAUSE)\s+\d+[.:\s\-]+(.+)",
+    r"(?:Annexure|ANNEXURE|Appendix|APPENDIX)\s*[A-Z0-9]*[.:\s\-]*(.*)",
+    r"(?:Schedule|SCHEDULE)\s+[IVX\d]+[.:\s\-]+(.+)",
+]
+
+
+def _safe_scalar_metadata(metadata: dict | None) -> dict[str, str | int | float | bool]:
+    if not metadata:
+        return {}
+
+    cleaned: dict[str, str | int | float | bool] = {}
+    for raw_key, value in metadata.items():
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            cleaned[str(raw_key)] = value
+            continue
+        if isinstance(value, (str, int, float)):
+            cleaned[str(raw_key)] = value
+    return cleaned
+
+
+def detect_section_header(text: str) -> str:
+    sample = (text or "")[:600]
+    for pattern in SECTION_PATTERNS:
+        match = re.search(pattern, sample)
+        if match:
+            return match.group(0).strip()[:120]
+    return ""
+
+
+def extract_page_range(text: str) -> str:
+    page_numbers = re.findall(r"\[Page\s+(\d+)\]", text or "")
+    if not page_numbers:
+        return ""
+
+    pages = sorted({int(num) for num in page_numbers})
+    if len(pages) == 1:
+        return str(pages[0])
+    return f"{pages[0]}-{pages[-1]}"
 
 
 def count_tokens(text: str) -> int:
@@ -66,10 +121,18 @@ def chunk_documents(
     chunks: list[Chunk] = []
 
     for doc in documents:
+        doc_metadata = _safe_scalar_metadata(getattr(doc, "metadata", {}))
         split_chunks = _chunk_text(doc.text, chunk_size=chunk_size, overlap=overlap)
         for idx, text in enumerate(split_chunks):
             chunks.append(
-                Chunk(text=text, source=doc.source, chunk_index=idx, doc_type=doc_type, chunk_type=doc_type)
+                Chunk(
+                    text=text,
+                    source=doc.source,
+                    chunk_index=idx,
+                    doc_type=doc_type,
+                    chunk_type=doc_type,
+                    extra_metadata=dict(doc_metadata),
+                )
             )
 
     return chunks
@@ -91,17 +154,26 @@ def chunk_documents_hierarchical(
     children: list[Chunk] = []
 
     for doc in documents:
+        doc_metadata = _safe_scalar_metadata(getattr(doc, "metadata", {}))
         parent_texts = _chunk_text(doc.text, chunk_size=parent_size, overlap=parent_ov)
         child_counter = 0
 
         for parent_index, parent_text in enumerate(parent_texts):
             parent_id = f"{doc.source}::parent::{parent_index}"
+            section = detect_section_header(parent_text)
+            pages = extract_page_range(parent_text)
+            has_table = "|" in parent_text and "---" in parent_text
+
             parents.append(
                 ParentChunk(
                     parent_id=parent_id,
                     source=doc.source,
                     parent_index=parent_index,
                     text=parent_text,
+                    section=section,
+                    pages=pages,
+                    has_table=has_table,
+                    extra_metadata=dict(doc_metadata),
                 )
             )
 
@@ -117,6 +189,10 @@ def chunk_documents_hierarchical(
                         parent_index=parent_index,
                         child_index=child_index,
                         chunk_type="child",
+                        section=section,
+                        pages=pages,
+                        has_table=has_table,
+                        extra_metadata=dict(doc_metadata),
                     )
                 )
                 child_counter += 1

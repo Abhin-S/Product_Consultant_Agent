@@ -118,8 +118,27 @@ def _parse_json_payload(text: str):
 def _build_context_text(bundle: ContextBundle) -> str:
     lines: list[str] = []
     for idx, doc in enumerate(bundle.docs, start=1):
+        meta_parts = [
+            f"source={doc.source}",
+            f"doc_type={doc.doc_type}",
+            f"chunk_type={doc.chunk_type}",
+            f"similarity={doc.similarity_score:.4f}",
+        ]
+        if doc.source_rel:
+            meta_parts.append(f"source_rel={doc.source_rel}")
+        if doc.topic:
+            meta_parts.append(f"topic={doc.topic}")
+        if doc.subtopic:
+            meta_parts.append(f"subtopic={doc.subtopic}")
+        if doc.section:
+            meta_parts.append(f"section={doc.section}")
+        if doc.pages:
+            meta_parts.append(f"pages={doc.pages}")
+        if doc.has_table:
+            meta_parts.append("has_table=true")
+
         lines.append(
-            f"[{idx}] source={doc.source} doc_type={doc.doc_type} similarity={doc.similarity_score:.4f}\n{doc.text}"
+            f"[{idx}] {' '.join(meta_parts)}\n{doc.text}"
         )
     return "\n\n".join(lines)
 
@@ -180,15 +199,27 @@ def should_abstain_for_coverage(
     return False, "", metrics
 
 
-def _clean_text(value: str) -> str:
+def _clean_text(value: str | None) -> str:
     return " ".join((value or "").split()).strip()
 
 
-def _truncate_text(value: str, max_len: int) -> str:
+def _truncate_text(value: str | None, max_len: int) -> str:
     clean = _clean_text(value)
     if len(clean) <= max_len:
         return clean
     return f"{clean[: max_len - 1].rstrip()}..."
+
+
+def _clean_text_list(items: list[str] | None, max_items: int = 6, max_len: int = 220) -> list[str]:
+    if not items:
+        return []
+
+    cleaned: list[str] = []
+    for item in items[:max_items]:
+        text = _truncate_text(str(item), max_len)
+        if text:
+            cleaned.append(text)
+    return cleaned
 
 
 def _short_title_from_idea(idea: str) -> str:
@@ -208,8 +239,9 @@ def _short_title_from_idea(idea: str) -> str:
     return candidate[0].upper() + candidate[1:]
 
 
-def _infer_risk_level(insight: InsightOutput) -> str:
-    risk_text = " ".join(insight.risks).lower()
+def _infer_risk_level(insight: InsightOutput) -> str | None:
+    risks = _clean_text_list(insight.risks)
+    risk_text = " ".join(risks).lower()
     severe_keywords = (
         "regulat",
         "legal",
@@ -225,25 +257,32 @@ def _infer_risk_level(insight: InsightOutput) -> str:
     has_high_priority = any(action.priority == "high" for action in insight.actions)
     has_severe_signal = any(keyword in risk_text for keyword in severe_keywords)
 
+    if not risks and not has_high_priority:
+        return None
+
     if has_high_priority or has_severe_signal:
         return "High"
-    if insight.confidence_score >= 0.72 and len(insight.risks) <= 3:
+    if insight.confidence_score >= 0.72 and len(risks) <= 3:
         return "Low"
     return "Medium"
 
 
 def _derive_tags(idea: str, insight: InsightOutput) -> list[str]:
+    opportunities = _clean_text_list(insight.opportunities, max_items=6, max_len=120)
+    suggested = _clean_text_list(insight.suggested_positioning, max_items=6, max_len=120)
+    trade_offs = _clean_text_list(insight.trade_offs, max_items=6, max_len=120)
+
     source = " ".join(
         [
             idea,
-            insight.brand_diagnosis,
-            insight.market_insight,
-            insight.final_positioning,
-            insight.target_audience,
-            insight.chosen_strategy,
-            " ".join(insight.opportunities),
-            " ".join(insight.suggested_positioning),
-            " ".join(insight.trade_offs),
+            _clean_text(insight.brand_diagnosis),
+            _clean_text(insight.market_insight),
+            _clean_text(insight.final_positioning),
+            _clean_text(insight.target_audience),
+            _clean_text(insight.chosen_strategy),
+            " ".join(opportunities),
+            " ".join(suggested),
+            " ".join(trade_offs),
         ]
     ).lower()
 
@@ -277,36 +316,6 @@ def _derive_tags(idea: str, insight: InsightOutput) -> list[str]:
         tags.append("execution")
 
     return tags[:8]
-
-
-def _ensure_decision_defaults(insight: InsightOutput) -> None:
-    if not _clean_text(insight.market_insight):
-        insight.market_insight = _truncate_text(insight.brand_diagnosis, 450)
-
-    if not insight.suggested_positioning:
-        insight.suggested_positioning = [
-            "Clarify a narrow promise for a specific audience before scaling messaging.",
-            "Lead with a concrete proof point instead of broad category language.",
-        ]
-
-    if not _clean_text(insight.target_audience):
-        insight.target_audience = "TODO: Define the first audience segment to prioritize."
-
-    if not _clean_text(insight.final_positioning):
-        insight.final_positioning = "TODO: Choose and refine one positioning statement."
-
-    if not _clean_text(insight.chosen_strategy):
-        insight.chosen_strategy = "TODO: Select one strategy path and commit to it for the next sprint."
-
-    if not insight.rejected_directions:
-        insight.rejected_directions = [
-            "Generic positioning for all users without a clear differentiator.",
-        ]
-
-    if not insight.trade_offs:
-        insight.trade_offs = [
-            "Narrow positioning improves clarity and conversion, but reduces initial reach.",
-        ]
 
 
 def build_insufficient_context_insight(idea: str, context_bundle: ContextBundle, reason: str) -> InsightOutput:
@@ -354,27 +363,13 @@ def build_insufficient_context_insight(idea: str, context_bundle: ContextBundle,
 
 
 def _build_notion_page_content(idea: str, insight: InsightOutput) -> str:
-    _ensure_decision_defaults(insight)
+    del idea  # Content is derived from the structured insight payload.
 
-    market_insight = _truncate_text(
-        insight.market_insight or insight.brand_diagnosis,
-        450,
-    ) or "No market insight available."
-
-    positioning = _truncate_text(
-        insight.suggested_positioning[0] if insight.suggested_positioning else insight.final_positioning,
-        320,
-    ) or "TODO: Define how this brand should be positioned."
-
-    differentiation = _truncate_text(
-        insight.suggested_positioning[1] if len(insight.suggested_positioning) > 1 else insight.chosen_strategy,
-        320,
-    ) or "TODO: Clarify the strongest reason users should choose this brand."
-
-    brand_narrative = _truncate_text(insight.chosen_strategy, 320)
-
-    risks = insight.risks or ["No major brand risks identified from retrieved context."]
-    opportunities = insight.opportunities or ["No clear opportunity areas identified from retrieved context."]
+    suggested = _clean_text_list(insight.suggested_positioning, max_items=6, max_len=320)
+    risks = _clean_text_list(insight.risks)
+    opportunities = _clean_text_list(insight.opportunities)
+    rejected = _clean_text_list(insight.rejected_directions)
+    trade_offs = _clean_text_list(insight.trade_offs)
 
     tasks: list[str] = []
     for idx, action in enumerate(insight.actions[:5], start=1):
@@ -385,99 +380,139 @@ def _build_notion_page_content(idea: str, insight: InsightOutput) -> str:
         meta = [f"Decision Type: {decision_label}", f"Impact: {action.impact.capitalize()}"]
         task_text = f"{task_text} ({'; '.join(meta)})"
         tasks.append(f"* Task {idx}: {task_text}")
-    if not tasks:
-        tasks.append("* Task 1: Define immediate next-step actions from selected decisions")
 
-    lines: list[str] = [
-        "🎯 Target Audience",
-        _truncate_text(insight.target_audience, 320),
-        "",
-        "💡 Positioning",
-        positioning,
-        "",
-        "⚡ Differentiation",
-        differentiation,
-        "",
-        "🧠 Brand Narrative",
-        brand_narrative,
-        "",
-        "📊 Market Insight",
-        market_insight,
-        "",
-        "⚠️ Risks",
-    ]
+    lines: list[str] = []
 
-    lines.extend(f"- {_truncate_text(item, 220)}" for item in risks[:6])
-    lines.extend(["", "📈 Opportunities"])
-    lines.extend(f"- {_truncate_text(item, 220)}" for item in opportunities[:6])
-    lines.extend(["", "✅ Final Positioning", _truncate_text(insight.final_positioning, 320)])
-    lines.extend(["", "❌ Rejected Directions"])
-    lines.extend(f"- {_truncate_text(item, 220)}" for item in insight.rejected_directions[:6])
-    lines.extend(["", "⚖️ Trade-offs"])
-    lines.extend(f"- {_truncate_text(item, 220)}" for item in insight.trade_offs[:6])
-    lines.extend(["", "🛠 Action Items"])
-    lines.extend(tasks)
+    def add_text_section(title: str, value: str | None, *, max_len: int = 320) -> None:
+        section_text = _truncate_text(value, max_len)
+        if not section_text:
+            return
+        lines.extend([title, section_text, ""])
+
+    def add_list_section(title: str, values: list[str]) -> None:
+        if not values:
+            return
+        lines.append(title)
+        lines.extend(f"- {item}" for item in values)
+        lines.append("")
+
+    add_text_section("🎯 Target Audience", insight.target_audience)
+    add_text_section("💡 Positioning", insight.final_positioning or (suggested[0] if suggested else None))
+    add_text_section("⚡ Differentiation", suggested[1] if len(suggested) > 1 else None)
+    add_text_section("🧠 Brand Narrative", insight.chosen_strategy)
+    add_text_section("📊 Market Insight", insight.market_insight or insight.brand_diagnosis, max_len=450)
+    add_list_section("⚠️ Risks", risks)
+    add_list_section("📈 Opportunities", opportunities)
+    add_text_section("✅ Final Positioning", insight.final_positioning)
+    add_list_section("❌ Rejected Directions", rejected)
+    add_list_section("⚖️ Trade-offs", trade_offs)
+    add_list_section("🛠 Action Items", tasks)
+
+    if not lines:
+        return ""
+
+    # Remove trailing blank line while preserving section separation.
+    while lines and not lines[-1].strip():
+        lines.pop()
 
     return "\n".join(lines).strip()
 
 
 def _build_database_metadata(idea: str, insight: InsightOutput) -> NotionDatabaseMetadata:
-    _ensure_decision_defaults(insight)
+    suggested = _clean_text_list(insight.suggested_positioning, max_items=6, max_len=240)
     primary_positioning = (
         insight.final_positioning
-        or (insight.suggested_positioning[0] if insight.suggested_positioning else "")
+        or (suggested[0] if suggested else "")
+        or insight.market_insight
         or insight.brand_diagnosis
         or idea
     )
 
+    tags = _derive_tags(idea, insight)
+    confidence_score = int(round(max(0.0, min(1.0, insight.confidence_score)) * 100))
+
     return NotionDatabaseMetadata(
         name=_short_title_from_idea(idea),
-        brand_positioning=_truncate_text(primary_positioning, 240),
+        brand_positioning=_truncate_text(primary_positioning, 240) or None,
         brand_risk_level=_infer_risk_level(insight),
-        confidence_score=int(round(max(0.0, min(1.0, insight.confidence_score)) * 100)),
-        tags=_derive_tags(idea, insight),
+        confidence_score=confidence_score,
+        tags=tags or None,
     )
 
 
 def _ensure_notion_format_outputs(idea: str, insight: InsightOutput) -> InsightOutput:
-    insight.brand_diagnosis = _truncate_text(insight.brand_diagnosis, 500) or "No brand diagnosis available."
-    _ensure_decision_defaults(insight)
+    insight.brand_diagnosis = _truncate_text(insight.brand_diagnosis, 500) or None
+    insight.market_insight = _truncate_text(insight.market_insight, 450) or None
+    insight.final_positioning = _truncate_text(insight.final_positioning, 320) or None
+    insight.target_audience = _truncate_text(insight.target_audience, 320) or None
+    insight.chosen_strategy = _truncate_text(insight.chosen_strategy, 320) or None
+
+    insight.suggested_positioning = _clean_text_list(insight.suggested_positioning, max_items=6, max_len=320) or None
+    insight.risks = _clean_text_list(insight.risks) or None
+    insight.opportunities = _clean_text_list(insight.opportunities) or None
+    insight.rejected_directions = _clean_text_list(insight.rejected_directions) or None
+    insight.trade_offs = _clean_text_list(insight.trade_offs) or None
 
     if not _clean_text(insight.notion_page_content):
-        insight.notion_page_content = _build_notion_page_content(idea, insight)
+        insight.notion_page_content = _build_notion_page_content(idea, insight) or None
     else:
-        insight.notion_page_content = insight.notion_page_content.strip()
+        insight.notion_page_content = insight.notion_page_content.strip() or None
 
     if insight.database_metadata is None:
         insight.database_metadata = _build_database_metadata(idea, insight)
     else:
         metadata = insight.database_metadata
-        metadata.name = _truncate_text(metadata.name, 120) or _short_title_from_idea(idea)
+        metadata.name = _truncate_text(metadata.name, 120) or None
         metadata.brand_positioning = _truncate_text(
             metadata.brand_positioning,
             300,
-        ) or _truncate_text(insight.final_positioning or insight.brand_diagnosis or idea, 240)
-        metadata.confidence_score = int(max(0, min(100, metadata.confidence_score)))
-        metadata.tags = [
+        ) or None
+        metadata.confidence_score = (
+            int(max(0, min(100, metadata.confidence_score)))
+            if metadata.confidence_score is not None
+            else int(round(max(0.0, min(1.0, insight.confidence_score)) * 100))
+        )
+        tags = [
             _truncate_text(tag, 40)
-            for tag in metadata.tags
+            for tag in (metadata.tags or [])
             if _clean_text(tag)
         ][:8]
-        if not metadata.tags:
-            metadata.tags = _derive_tags(idea, insight)
+        metadata.tags = tags or (_derive_tags(idea, insight) or None)
+
+        if metadata.brand_risk_level is None:
+            metadata.brand_risk_level = _infer_risk_level(insight)
+
+        if not metadata.name:
+            metadata.name = _short_title_from_idea(idea)
+
+        if not metadata.brand_positioning:
+            metadata.brand_positioning = _truncate_text(
+                insight.final_positioning or insight.market_insight or insight.brand_diagnosis or idea,
+                240,
+            ) or None
 
     return insight
 
 
-def _request_options() -> dict | None:
-    timeout = int(settings.MODEL_REQUEST_TIMEOUT_SECONDS)
+def _request_options(timeout_override_seconds: int | None = None) -> dict | None:
+    timeout = (
+        int(timeout_override_seconds)
+        if timeout_override_seconds is not None
+        else int(settings.MODEL_REQUEST_TIMEOUT_SECONDS)
+    )
     if timeout > 0:
         return {"timeout": timeout}
     return None
 
 
-def _generate_with_options(model: genai.GenerativeModel, prompt: str, generation_config: dict) -> object:
-    options = _request_options()
+def _generate_with_options(
+    model: genai.GenerativeModel,
+    prompt: str,
+    generation_config: dict,
+    *,
+    timeout_override_seconds: int | None = None,
+) -> object:
+    options = _request_options(timeout_override_seconds=timeout_override_seconds)
     if options is None:
         return model.generate_content(prompt, generation_config=generation_config)
     return model.generate_content(
@@ -496,7 +531,7 @@ def _json_mode_not_supported(exc: Exception) -> bool:
     )
 
 
-def _call_gemma(prompt: str) -> tuple[object, str]:
+def _call_gemma(prompt: str, *, timeout_override_seconds: int | None = None) -> tuple[object, str]:
     generation_config = {
         "temperature": 0,
         "response_mime_type": "application/json",
@@ -506,12 +541,22 @@ def _call_gemma(prompt: str) -> tuple[object, str]:
     for model_name in _candidate_model_names():
         model = _get_model(model_name)
         try:
-            response = _generate_with_options(model, prompt, generation_config)
+            response = _generate_with_options(
+                model,
+                prompt,
+                generation_config,
+                timeout_override_seconds=timeout_override_seconds,
+            )
             return response, model_name
         except Exception as exc:
             try:
                 if _json_mode_not_supported(exc):
-                    response = _generate_with_options(model, prompt, {"temperature": 0})
+                    response = _generate_with_options(
+                        model,
+                        prompt,
+                        {"temperature": 0},
+                        timeout_override_seconds=timeout_override_seconds,
+                    )
                     return response, model_name
             except Exception as inner_exc:
                 exc = inner_exc
@@ -547,7 +592,12 @@ def _is_retryable_model_error(exc: Exception) -> bool:
     )
 
 
-async def generate_insight(idea: str, context_bundle: ContextBundle) -> tuple[InsightOutput, float, int]:
+async def generate_insight(
+    idea: str,
+    context_bundle: ContextBundle,
+    *,
+    timeout_override_seconds: int | None = None,
+) -> tuple[InsightOutput, float, int]:
     schema_json = json.dumps(InsightOutput.model_json_schema(), indent=2)
     system_prompt = SYSTEM_PROMPT.format(schema=schema_json)
     context_text = _build_context_text(context_bundle)
@@ -571,7 +621,10 @@ async def generate_insight(idea: str, context_bundle: ContextBundle) -> tuple[In
             composed_prompt = f"{composed_prompt}\n\n" + "\n\n".join(corrections)
 
         try:
-            response, model_used = _call_gemma(composed_prompt)
+            response, model_used = _call_gemma(
+                composed_prompt,
+                timeout_override_seconds=timeout_override_seconds,
+            )
             response_text = _extract_text(response)
             insight = InsightOutput.model_validate(_parse_json_payload(response_text))
 

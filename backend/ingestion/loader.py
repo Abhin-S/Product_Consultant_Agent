@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 class Document:
     text: str
     source: str
+    metadata: dict[str, str | int | float | bool] = field(default_factory=dict)
 
 
 def _table_to_markdown(table: list[list[str | None]]) -> str:
@@ -45,9 +46,22 @@ def _table_to_markdown(table: list[list[str | None]]) -> str:
     return "\n".join(lines)
 
 
-def _extract_text_outside_tables(page: pdfplumber.page.Page, table_bboxes: list[tuple]) -> str:
-    if not table_bboxes:
+def _safe_extract_page_text(page: pdfplumber.page.Page, *, context: str) -> str:
+    try:
         return page.extract_text() or ""
+    except Exception as exc:
+        logger.warning("PDF text extraction failed (%s): %s", context, exc)
+        return ""
+
+
+def _extract_text_outside_tables(
+    page: pdfplumber.page.Page,
+    table_bboxes: list[tuple],
+    *,
+    context: str,
+) -> str:
+    if not table_bboxes:
+        return _safe_extract_page_text(page, context=context)
 
     try:
         def _outside(obj: dict) -> bool:
@@ -59,45 +73,108 @@ def _extract_text_outside_tables(page: pdfplumber.page.Page, table_bboxes: list[
             return True
 
         filtered = page.filter(_outside)
-        return filtered.extract_text() or ""
-    except Exception:
-        return page.extract_text() or ""
+        try:
+            return filtered.extract_text() or ""
+        except Exception as exc:
+            logger.warning("Filtered PDF text extraction failed (%s): %s", context, exc)
+            return _safe_extract_page_text(page, context=context)
+    except Exception as exc:
+        logger.warning("Table-region filtering failed (%s): %s", context, exc)
+        return _safe_extract_page_text(page, context=context)
 
 
-def _load_pdf(path: Path) -> str:
+def _derive_source_metadata(path: Path, root: Path) -> dict[str, str | int | float | bool]:
+    rel_path = path.resolve().relative_to(root.resolve())
+    parts = list(rel_path.parts)
+
+    topic = parts[0] if len(parts) > 1 else "General"
+    subtopic = parts[1] if len(parts) > 2 else ""
+
+    return {
+        "source_rel": rel_path.as_posix(),
+        "source_name": path.name,
+        "source_stem": path.stem,
+        "source_ext": path.suffix.lower(),
+        "topic": topic,
+        "subtopic": subtopic,
+    }
+
+
+def _load_pdf(path: Path) -> tuple[str, dict[str, int | bool]]:
     chunks: list[str] = []
+    page_count = 0
+    table_page_count = 0
+    scanned_page_count = 0
+
     with pdfplumber.open(path) as pdf:
+        page_count = len(pdf.pages)
         for idx, page in enumerate(pdf.pages, start=1):
-            table_blocks: list[str] = []
-            table_bboxes: list[tuple] = []
-
+            page_context = f"{path.name}:page:{idx}"
             try:
-                tables = page.find_tables() or []
-            except Exception:
-                tables = []
+                table_blocks: list[str] = []
+                table_bboxes: list[tuple] = []
 
-            for table in tables:
                 try:
-                    table_bboxes.append(table.bbox)
-                    table_data = table.extract()
-                    table_md = _table_to_markdown(table_data)
-                    if table_md:
-                        table_blocks.append(table_md)
-                except Exception:
+                    tables = page.find_tables() or []
+                except Exception as exc:
+                    logger.warning("Table detection failed (%s): %s", page_context, exc)
+                    tables = []
+
+                for table in tables:
+                    try:
+                        table_bboxes.append(table.bbox)
+                        table_data = table.extract()
+                        table_md = _table_to_markdown(table_data)
+                        if table_md:
+                            table_blocks.append(table_md)
+                    except Exception:
+                        continue
+
+                page_text = _extract_text_outside_tables(page, table_bboxes, context=page_context)
+                if not table_blocks:
+                    try:
+                        fallback_tables = page.extract_tables() or []
+                    except Exception as exc:
+                        logger.warning("Fallback table extraction failed (%s): %s", page_context, exc)
+                        fallback_tables = []
+                    table_blocks = [_table_to_markdown(table) for table in fallback_tables]
+                table_blocks = [block for block in table_blocks if block]
+
+                has_table = bool(table_blocks)
+                if has_table:
+                    table_page_count += 1
+
+                compact_page_text = re.sub(r"\s+", "", page_text)
+                is_scanned_like = len(compact_page_text) < 50 and not has_table
+                if is_scanned_like:
+                    scanned_page_count += 1
+
+                if not page_text.strip() and not has_table:
                     continue
 
-            page_text = _extract_text_outside_tables(page, table_bboxes)
-            if not table_blocks:
-                fallback_tables = page.extract_tables() or []
-                table_blocks = [_table_to_markdown(table) for table in fallback_tables]
-            table_blocks = [block for block in table_blocks if block]
+                section_parts = [f"[Page {idx}]"]
+                if page_text.strip():
+                    section_parts.append(page_text.strip())
 
-            section_parts = [f"[Page {idx}]", page_text]
-            if table_blocks:
-                section_parts.append("\n\n".join(table_blocks))
+                if table_blocks:
+                    labeled_tables = [
+                        f"[Table {table_idx} on Page {idx}]\n{table_md}"
+                        for table_idx, table_md in enumerate(table_blocks, start=1)
+                    ]
+                    section_parts.append("\n\n".join(labeled_tables))
 
-            chunks.append("\n\n".join(part for part in section_parts if part.strip()))
-    return "\n".join(chunks)
+                chunks.append("\n\n".join(part for part in section_parts if part.strip()))
+            except Exception as exc:
+                logger.warning("Skipping unreadable PDF page (%s): %s", page_context, exc)
+                scanned_page_count += 1
+                continue
+
+    return "\n\n".join(chunks), {
+        "page_count": page_count,
+        "table_page_count": table_page_count,
+        "scanned_page_count": scanned_page_count,
+        "has_tables": table_page_count > 0,
+    }
 
 
 def _docx_table_to_markdown(table: docx.table.Table) -> str:
@@ -165,21 +242,34 @@ def load_documents(docs_dir: str | None = None) -> list[Document]:
             continue
 
         suffix = file_path.suffix.lower()
+        metadata = _derive_source_metadata(file_path, root)
 
-        if suffix == ".pdf":
-            text = _load_pdf(file_path)
-        elif suffix == ".docx":
-            text = _load_docx(file_path)
-        elif suffix == ".doc":
-            text = _load_doc(file_path)
-        else:
-            text = _load_text(file_path)
+        try:
+            if suffix == ".pdf":
+                text, pdf_stats = _load_pdf(file_path)
+                metadata.update(pdf_stats)
+            elif suffix == ".docx":
+                text = _load_docx(file_path)
+            elif suffix == ".doc":
+                text = _load_doc(file_path)
+            else:
+                text = _load_text(file_path)
+        except Exception as exc:
+            logger.warning("Skipping file '%s' due extraction error: %s", file_path, exc)
+            continue
 
         text = text.strip()
         if not text:
             continue
 
-        logger.info("Loaded file %s (%d chars, type=%s)", file_path.name, len(text), suffix)
-        documents.append(Document(text=text, source=str(file_path)))
+        logger.info(
+            "Loaded file %s (%d chars, type=%s, topic=%s, subtopic=%s)",
+            file_path.name,
+            len(text),
+            suffix,
+            metadata.get("topic", "General"),
+            metadata.get("subtopic", ""),
+        )
+        documents.append(Document(text=text, source=str(file_path), metadata=metadata))
 
     return documents

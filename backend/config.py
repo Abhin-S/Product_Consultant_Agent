@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     RAGAS_MAX_CONTEXT_DOCS: int = 4
     RAGAS_CONTEXT_DOC_CHAR_LIMIT: int = 1800
     RAGAS_ANSWER_CHAR_LIMIT: int = 3000
+    TRADITIONAL_EVAL_BENCHMARK_PATH: str = "./evaluation/benchmark_queries.json"
+    TRADITIONAL_EVAL_TOP_K: int = 5
 
     # Frontend
     FRONTEND_URL: str = "http://localhost:3000"

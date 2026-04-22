@@ -45,35 +45,35 @@ export interface SessionChatTurn {
 }
 
 export interface InsightOutput {
-  brand_diagnosis?: string;
-  market_insight?: string;
-  suggested_positioning?: string[];
-  risks: string[];
-  opportunities: string[];
-  final_positioning?: string;
-  target_audience?: string;
-  chosen_strategy?: string;
-  rejected_directions?: string[];
-  trade_offs?: string[];
+  brand_diagnosis?: string | null;
+  market_insight?: string | null;
+  suggested_positioning?: string[] | null;
+  risks?: string[] | null;
+  opportunities?: string[] | null;
+  final_positioning?: string | null;
+  target_audience?: string | null;
+  chosen_strategy?: string | null;
+  rejected_directions?: string[] | null;
+  trade_offs?: string[] | null;
 
   // Legacy compatibility
-  idea_summary?: string;
-  recommendations?: string[];
+  idea_summary?: string | null;
+  recommendations?: string[] | null;
 
   actions: ActionItem[];
   confidence_score: number;
-  notion_page_content?: string;
+  notion_page_content?: string | null;
   database_metadata?: {
-    name: string;
-    brand_positioning?: string;
-    brand_risk_level?: "Low" | "Medium" | "High";
+    name?: string | null;
+    brand_positioning?: string | null;
+    brand_risk_level?: "Low" | "Medium" | "High" | null;
 
     // Legacy compatibility
-    idea_description?: string;
-    risk_level?: "Low" | "Medium" | "High";
+    idea_description?: string | null;
+    risk_level?: "Low" | "Medium" | "High" | null;
 
-    confidence_score: number;
-    tags: string[];
+    confidence_score?: number | null;
+    tags?: string[] | null;
   } | null;
 }
 
@@ -143,11 +143,11 @@ export interface ActionResult {
 }
 
 export interface DatabaseMetadataOverride {
-  name?: string;
-  brand_positioning?: string;
-  brand_risk_level?: "Low" | "Medium" | "High";
-  confidence_score?: number;
-  tags?: string[];
+  name?: string | null;
+  brand_positioning?: string | null;
+  brand_risk_level?: "Low" | "Medium" | "High" | null;
+  confidence_score?: number | null;
+  tags?: string[] | null;
 }
 
 export interface ExecuteRequest {
@@ -183,11 +183,19 @@ export interface Session {
   actions_taken: number;
   tier1_metrics?: Tier1Metrics | null;
   ragas?: {
-    status: "pending" | "skipped" | "completed" | "failed" | string;
+    status: "pending" | "skipped" | "completed" | "failed" | "fallback_completed" | string;
     context_precision: number | null;
     context_recall: number | null;
     faithfulness: number | null;
     answer_relevance: number | null;
+    evaluation_mode?: "ragas" | "traditional_fallback";
+    evaluation_notice?: string | null;
+    traditional_metrics?: {
+      recall_at_k: number | null;
+      map_at_k: number | null;
+      rouge_l_f1: number | null;
+      bertscore_f1: number | null;
+    } | null;
   } | null;
 }
 
@@ -211,7 +219,15 @@ export interface EvaluationLog {
   context_recall: number | null;
   faithfulness: number | null;
   answer_relevance: number | null;
-  ragas_eval_status: "pending" | "skipped" | "completed" | "failed" | string;
+  ragas_eval_status: "pending" | "skipped" | "completed" | "failed" | "fallback_completed" | string;
+  evaluation_mode?: "ragas" | "traditional_fallback";
+  evaluation_notice?: string | null;
+  traditional_metrics?: {
+    recall_at_k: number | null;
+    map_at_k: number | null;
+    rouge_l_f1: number | null;
+    bertscore_f1: number | null;
+  } | null;
   query: string;
   retrieved_docs: unknown[];
   generated_output: string;

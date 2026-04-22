@@ -1,0 +1,30 @@
+{
+  "benchmark_name": "brand_pricing_core_v1",
+  "items": [
+    {
+      "query": "What strategic pricing principles are highlighted in Tata Communications analysis for protecting long-term brand trust?",
+      "document_id": "Case_Study_Data/Brand Pricing/20250311060634_Tata-Communication-11032025-icici.pdf",
+      "reference_answer": "A trust-protective pricing strategy should avoid reactive discounting and anchor value to service reliability, enterprise outcomes, and quality signals. The brand should communicate why price reflects delivery confidence, not just cost. It should segment customer value clearly and maintain pricing discipline so that short-term volume actions do not erode long-term brand credibility."
+    },
+    {
+      "query": "How should Tata Motors style sales and distribution strategy support brand pricing power?",
+      "document_id": "Case_Study_Data/Brand Pricing/EFFECTIVE+SALES+AND+DISTRIBUTION+STRATEGIES+INSIGHTS+FROM+TATA+MOTORS.pdf",
+      "reference_answer": "Distribution strategy should reinforce pricing power by ensuring availability in the right channels, improving dealer execution quality, and maintaining a consistent brand experience. Better channel alignment reduces forced discounting and improves perceived value. Sales performance should be tied to brand-consistent execution, not only volume targets."
+    },
+    {
+      "query": "From the Tata consumer preference study, what pricing and communication implications matter most for segment fit?",
+      "document_id": "Case_Study_Data/Brand Pricing/To_Study_Consumer_Preference_Towards_TAT.pdf",
+      "reference_answer": "Consumer preference insights should be translated into segment-specific value propositions and differentiated pricing bands. Communication should match what each segment values most, such as reliability, quality, or affordability, rather than using one generic message. Pricing and messaging must move together so each segment perceives a fair value exchange."
+    },
+    {
+      "query": "What portfolio and growth lessons from the Tata Group strategy report support sustainable brand pricing decisions?",
+      "document_id": "Case_Study_Data/Brand Pricing/Report_on_Tata_Group_and_Its_Growth_Stra.pdf",
+      "reference_answer": "Sustainable pricing across a group portfolio requires role clarity for each brand, disciplined positioning, and investment in long-term equity rather than short-term price cuts. Growth strategy should balance premium and value offerings without blurring brand meaning. Portfolio governance should protect differentiation so price remains a signal of strategic position."
+    },
+    {
+      "query": "What practical guidance do pricing studies suggest for balancing competitiveness and brand equity in B2B contexts?",
+      "document_id": "Case_Study_Data/Brand Pricing/IFC2252.pdf",
+      "reference_answer": "In B2B markets, firms should compete on total value delivered and proof of outcomes rather than headline price alone. Competitive response should be selective and evidence based, with clear guardrails against broad discounting. The best approach combines value-based pricing logic, transparent justification, and consistency across sales teams to preserve equity while staying competitive."
+    }
+  ]
+}

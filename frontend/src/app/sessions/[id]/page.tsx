@@ -29,6 +29,19 @@ function InsightOutputPanel({ insight }: { insight: InsightOutput }) {
   const suggestions = insightSuggestions(insight);
   const risks = Array.isArray(insight.risks) ? insight.risks : [];
   const opportunities = Array.isArray(insight.opportunities) ? insight.opportunities : [];
+  const rejectedDirections = Array.isArray(insight.rejected_directions) ? insight.rejected_directions : [];
+  const tradeOffs = Array.isArray(insight.trade_offs) ? insight.trade_offs : [];
+
+  const finalPositioning = (insight.final_positioning || "").trim();
+  const targetAudience = (insight.target_audience || "").trim();
+  const chosenStrategy = (insight.chosen_strategy || "").trim();
+
+  const hasDecisionSection =
+    finalPositioning.length > 0 ||
+    targetAudience.length > 0 ||
+    chosenStrategy.length > 0 ||
+    rejectedDirections.length > 0 ||
+    tradeOffs.length > 0;
 
   return (
     <div className="space-y-4">
@@ -84,20 +97,59 @@ function InsightOutputPanel({ insight }: { insight: InsightOutput }) {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-          <p className="font-semibold text-slate-700">Final Positioning</p>
-          <p className="mt-1 text-slate-800">{insight.final_positioning || "To be decided"}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-          <p className="font-semibold text-slate-700">Target Audience</p>
-          <p className="mt-1 text-slate-800">{insight.target_audience || "To be decided"}</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-          <p className="font-semibold text-slate-700">Chosen Strategy</p>
-          <p className="mt-1 text-slate-800">{insight.chosen_strategy || "To be decided"}</p>
-        </div>
-      </div>
+      {hasDecisionSection && (
+        <>
+          <div className="grid gap-4 md:grid-cols-3">
+            {finalPositioning && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                <p className="font-semibold text-slate-700">Final Positioning</p>
+                <p className="mt-1 text-slate-800">{finalPositioning}</p>
+              </div>
+            )}
+            {targetAudience && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                <p className="font-semibold text-slate-700">Target Audience</p>
+                <p className="mt-1 text-slate-800">{targetAudience}</p>
+              </div>
+            )}
+            {chosenStrategy && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                <p className="font-semibold text-slate-700">Chosen Strategy</p>
+                <p className="mt-1 text-slate-800">{chosenStrategy}</p>
+              </div>
+            )}
+          </div>
+
+          {(rejectedDirections.length > 0 || tradeOffs.length > 0) && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {rejectedDirections.length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <p className="font-semibold text-slate-700">Rejected Directions</p>
+                  <ul className="mt-2 space-y-1">
+                    {rejectedDirections.map((item, idx) => (
+                      <li key={idx} className="rounded-md bg-white/80 p-2">
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {tradeOffs.length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+                  <p className="font-semibold text-slate-700">Trade-offs</p>
+                  <ul className="mt-2 space-y-1">
+                    {tradeOffs.map((item, idx) => (
+                      <li key={idx} className="rounded-md bg-white/80 p-2">
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -141,6 +193,35 @@ function EvaluationPanel({
             </table>
           </div>
           <p className="mt-3 text-sm font-medium text-slate-700">RAGAS Status: {ragasMessage}</p>
+          {evaluationLog.evaluation_notice && (
+            <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {evaluationLog.evaluation_notice}
+            </p>
+          )}
+          {evaluationLog.traditional_metrics && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <tbody>
+                  <tr className="border-b">
+                    <td className="py-2 font-medium">Recall@k</td>
+                    <td>{(evaluationLog.traditional_metrics.recall_at_k ?? 0).toFixed(3)}</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="py-2 font-medium">MAP@k</td>
+                    <td>{(evaluationLog.traditional_metrics.map_at_k ?? 0).toFixed(3)}</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="py-2 font-medium">ROUGE-L F1</td>
+                    <td>{(evaluationLog.traditional_metrics.rouge_l_f1 ?? 0).toFixed(3)}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2 font-medium">BERTScore F1</td>
+                    <td>{(evaluationLog.traditional_metrics.bertscore_f1 ?? 0).toFixed(3)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       ) : (
         <p className="mt-2 text-sm text-slate-600">No evaluation data for this session.</p>
@@ -227,6 +308,7 @@ export default function SessionDetailPage() {
     if (status === "pending") return "Pending...";
     if (status === "skipped") return "Evaluation skipped";
     if (status === "failed") return "Evaluation failed";
+    if (status === "fallback_completed") return "RAGAS failed; benchmark fallback completed";
     return "Completed";
   }, [session]);
 

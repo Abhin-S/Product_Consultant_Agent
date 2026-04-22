@@ -144,11 +144,28 @@ uv pip install --python .\.venv\Scripts\python.exe -r requirements.txt
 & .\.venv\Scripts\python.exe ingest_local.py
 ```
 
+Optional: run against a specific directory instead of `DOCS_DIR` from `.env`:
+
+```powershell
+& .\.venv\Scripts\python.exe ingest_local.py --docs-dir "D:\path\to\docs"
+```
+
 What this does now:
 - Reloads all supported documents from `DOCS_DIR` recursively.
+- Extracts PDFs with table-aware parsing (page text + Markdown tables).
+- Extracts DOCX body text and tables, preserving table structure in Markdown.
+- Skips legacy `.doc` files (convert them to `.docx` for reliable extraction).
 - Rebuilds parent/child chunks for loaded sources.
+- Adds source metadata (relative path, topic, subtopic, section/page signals) to chunks.
+- Automatically batches Chroma upserts to respect Chroma per-request limits while still ingesting the full corpus.
 - Replaces existing local chunks for those sources in Chroma.
 - Replaces parent-store entries for those sources.
+
+Should you delete existing chunks / Chroma DB first?
+- If you only added or edited files: No. Run standard re-index only.
+- If you deleted files and want removed content gone from retrieval: Use `--rebuild`.
+- If you renamed/moved many files (path identity changed): Use `--rebuild`.
+- If you changed chunk-size settings (`PARENT_*` / `CHILD_*`) or ingestion logic: Use `--rebuild`.
 
 When you should run full rebuild:
 - You deleted files from corpus and want removed content fully gone from index.
@@ -165,6 +182,33 @@ Full rebuild command:
 Do you need to manually delete Chroma DB files?
 - Usually no. Prefer `--rebuild`; it clears the collection and parent store safely.
 - Manual deletion should only be a last resort if Chroma state is corrupted.
+
+## Evaluation Fallback (When RAGAS Fails)
+
+The system keeps RAGAS as the primary Tier-2 evaluator.
+If RAGAS fails, it automatically runs a traditional benchmark fallback.
+
+Benchmark file:
+- Path: `backend/evaluation/benchmark_queries.json`
+- Required keys per item:
+	- `query`
+	- `document_id`
+	- `reference_answer`
+
+Traditional fallback metrics:
+- Retrieval: `Recall@k`, `MAP@k`
+- Generation: `ROUGE-L F1`, `BERTScore F1`
+
+How fallback status appears:
+- `ragas_eval_status` is set to `fallback_completed`
+- API payload includes:
+	- `evaluation_mode: traditional_fallback`
+	- `evaluation_notice` (explicitly states predefined benchmark queries were used)
+	- `traditional_metrics`
+
+Important behavior:
+- Benchmark generation calls run with timeout override disabled (`timeout_override_seconds=0`) for fallback evaluation.
+- The fallback metrics are benchmark-level diagnostics, not a direct score for the user's exact question.
 
 ## First Run Checklist
 
