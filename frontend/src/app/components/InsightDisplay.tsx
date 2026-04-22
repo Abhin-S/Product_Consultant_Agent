@@ -55,6 +55,25 @@ function compactList(values: Array<string | null | undefined> | null | undefined
     .filter((item) => item.length > 0);
 }
 
+function abstentionText(
+  insight: InsightOutput,
+  groundingStatus?: Props["groundingStatus"]
+): string {
+  const explicit = (insight.abstention_message || "").trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  if (groundingStatus === "insufficient_context" || groundingStatus === "not_grounded") {
+    return (
+      "Sorry, I do not have enough grounded evidence in the available documents to answer that question reliably. "
+      + "Please ask a question tied to the ingested brand materials or add more relevant evidence and try again."
+    );
+  }
+
+  return "";
+}
+
 export default function InsightDisplay({
   insight,
   usedFallback,
@@ -66,6 +85,8 @@ export default function InsightDisplay({
   onReview,
   onStartOver
 }: Props) {
+  const abstentionMessage = abstentionText(insight, groundingStatus);
+  const isAbstaining = abstentionMessage.length > 0;
   const diagnosis = (insight.brand_diagnosis || insight.idea_summary || "").trim();
   const marketInsight = (insight.market_insight || "").trim();
   const suggestedPositioning =
@@ -105,8 +126,12 @@ export default function InsightDisplay({
   return (
     <section className="space-y-4">
       <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
-        <h2 className="text-xl font-semibold">Brand Diagnosis</h2>
-        {hasText(diagnosis) ? (
+        <h2 className="text-xl font-semibold">{isAbstaining ? "Response" : "Brand Diagnosis"}</h2>
+        {isAbstaining ? (
+          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-slate-800">
+            {abstentionMessage}
+          </p>
+        ) : hasText(diagnosis) ? (
           <p className="mt-2 rounded-xl bg-slate-50 p-4 text-slate-800">{diagnosis}</p>
         ) : (
           <p className="mt-2 rounded-xl bg-slate-50 p-4 text-slate-600">
@@ -147,7 +172,7 @@ export default function InsightDisplay({
         </div>
       </article>
 
-      {hasSuggestionsSection && (
+      {!isAbstaining && hasSuggestionsSection && (
         <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
           <h3 className="text-lg font-semibold">Suggestions (AI)</h3>
           <p className="mt-1 text-sm text-slate-600">
@@ -208,7 +233,7 @@ export default function InsightDisplay({
         </article>
       )}
 
-      {hasDecisionSection && (
+      {!isAbstaining && hasDecisionSection && (
         <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
           <h3 className="text-lg font-semibold">Decisions (User)</h3>
           <p className="mt-1 text-sm text-slate-600">
@@ -270,7 +295,7 @@ export default function InsightDisplay({
         </article>
       )}
 
-      {insight.notion_page_content && insight.notion_page_content.trim().length > 0 && (
+      {!isAbstaining && insight.notion_page_content && insight.notion_page_content.trim().length > 0 && (
         <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
           <h3 className="text-lg font-semibold">Notion Page Content (Primary)</h3>
           <p className="mt-1 text-sm text-slate-600">
@@ -282,7 +307,7 @@ export default function InsightDisplay({
         </article>
       )}
 
-      {hasDatabaseMetadata && insight.database_metadata && (
+      {!isAbstaining && hasDatabaseMetadata && insight.database_metadata && (
         <article className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
           <h3 className="text-lg font-semibold">Database Metadata (Secondary)</h3>
           <div className="mt-3 grid gap-2 text-sm text-slate-700 md:grid-cols-2">
@@ -355,8 +380,9 @@ export default function InsightDisplay({
         </div>
       </details>
 
-      <article className="rounded-2xl border border-slate-200 bg-white/95 p-4 shadow">
-        <h3 className="font-semibold">Execution (Actionable Tasks)</h3>
+      {!isAbstaining && insight.actions.length > 0 && (
+        <article className="rounded-2xl border border-slate-200 bg-white/95 p-4 shadow">
+          <h3 className="font-semibold">Execution (Actionable Tasks)</h3>
         <ul className="mt-2 space-y-2 text-sm">
           {insight.actions.map((action, idx) => (
             <li key={idx} className="flex items-center justify-between rounded-lg border border-slate-200 p-2">
@@ -369,16 +395,19 @@ export default function InsightDisplay({
               <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium">{action.priority}</span>
             </li>
           ))}
-        </ul>
-      </article>
+          </ul>
+        </article>
+      )}
 
       <div className="flex flex-wrap gap-3">
-        <button
-          onClick={onReview}
-          className="rounded-lg bg-ink px-4 py-2 font-semibold text-white hover:bg-slate-800"
-        >
-          Review & Execute Actions
-        </button>
+        {!isAbstaining && insight.actions.length > 0 && (
+          <button
+            onClick={onReview}
+            className="rounded-lg bg-ink px-4 py-2 font-semibold text-white hover:bg-slate-800"
+          >
+            Review & Execute Actions
+          </button>
+        )}
         <button
           onClick={onStartOver}
           className="rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-100"

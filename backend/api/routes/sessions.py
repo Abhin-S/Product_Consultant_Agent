@@ -192,6 +192,7 @@ def _assistant_summary_from_raw_output(raw_output: dict[str, Any] | None) -> str
         return "Initial brand strategy analysis generated for this decision session."
 
     candidates = [
+        raw_output.get("abstention_message"),
         raw_output.get("market_insight"),
         raw_output.get("brand_diagnosis"),
         raw_output.get("idea_summary"),
@@ -539,7 +540,8 @@ async def chat_in_session(
             grounding_status = "not_requested"
 
     assistant_message = (
-        (insight.market_insight or "").strip()
+        (insight.abstention_message or "").strip()
+        or (insight.market_insight or "").strip()
         or (insight.brand_diagnosis or "").strip()
         or "Updated recommendation generated for this follow-up question."
     )

@@ -318,45 +318,19 @@ def _derive_tags(idea: str, insight: InsightOutput) -> list[str]:
     return tags[:8]
 
 
+def _default_abstention_message() -> str:
+    return (
+        "Sorry, I do not have enough grounded evidence in the available documents to answer that question reliably. "
+        "Please ask a question tied to the ingested brand materials or add more relevant evidence and try again."
+    )
+
+
 def build_insufficient_context_insight(idea: str, context_bundle: ContextBundle, reason: str) -> InsightOutput:
     metrics = _context_coverage_metrics(context_bundle)
     confidence = min(float(metrics["avg_similarity"]), 0.2)
 
     insight = InsightOutput(
-        brand_diagnosis=(
-            f"Unable to answer reliably from the available corpus for this question: {idea[:220]}"
-        ),
-        market_insight=(
-            "I cannot provide a grounded recommendation because supporting evidence is insufficient. "
-            f"Reason: {reason}"
-        ),
-        suggested_positioning=[
-            "No strategic recommendation generated due to insufficient grounded evidence.",
-            "Please add domain-specific documents for this question and retry.",
-        ],
-        risks=[
-            "Any detailed recommendation now would likely be speculative or hallucinated.",
-            "Current context does not provide enough support for a confident answer.",
-        ],
-        opportunities=[
-            "Ingest additional documents directly related to this decision question.",
-            "Retry after corpus expansion or with a narrower, evidence-linked query.",
-        ],
-        final_positioning="Not provided due to insufficient evidence.",
-        target_audience="Not provided due to insufficient evidence.",
-        chosen_strategy="Not provided due to insufficient evidence.",
-        rejected_directions=["Proceeding with unsupported strategic decisions from weak context."],
-        trade_offs=["Abstaining avoids confident but ungrounded recommendations."],
-        actions=[
-            {
-                "type": "task",
-                "title": "Expand corpus coverage for this question",
-                "description": "Add and ingest domain-specific evidence, then rerun the analysis.",
-                "priority": "high",
-                "decision_type": "other",
-                "impact": "high",
-            }
-        ],
+        abstention_message=_default_abstention_message(),
         confidence_score=float(max(0.0, min(0.2, confidence))),
     )
     return _ensure_notion_format_outputs(idea, insight)
@@ -441,6 +415,24 @@ def _build_database_metadata(idea: str, insight: InsightOutput) -> NotionDatabas
 
 
 def _ensure_notion_format_outputs(idea: str, insight: InsightOutput) -> InsightOutput:
+    abstention_message = _truncate_text(insight.abstention_message, 320) or None
+    if abstention_message:
+        insight.abstention_message = abstention_message
+        insight.brand_diagnosis = None
+        insight.market_insight = None
+        insight.final_positioning = None
+        insight.target_audience = None
+        insight.chosen_strategy = None
+        insight.suggested_positioning = None
+        insight.risks = None
+        insight.opportunities = None
+        insight.rejected_directions = None
+        insight.trade_offs = None
+        insight.actions = []
+        insight.notion_page_content = None
+        insight.database_metadata = None
+        return insight
+
     insight.brand_diagnosis = _truncate_text(insight.brand_diagnosis, 500) or None
     insight.market_insight = _truncate_text(insight.market_insight, 450) or None
     insight.final_positioning = _truncate_text(insight.final_positioning, 320) or None
@@ -629,7 +621,10 @@ async def generate_insight(
             insight = InsightOutput.model_validate(_parse_json_payload(response_text))
 
             confidence = mean([doc.similarity_score for doc in context_bundle.docs]) if context_bundle.docs else 0.0
-            insight.confidence_score = float(max(0.0, min(1.0, confidence)))
+            if _clean_text(insight.abstention_message):
+                insight.confidence_score = float(max(0.0, min(0.2, confidence)))
+            else:
+                insight.confidence_score = float(max(0.0, min(1.0, confidence)))
             insight = _ensure_notion_format_outputs(idea, insight)
 
             latency_ms = (time.perf_counter() - start) * 1000
@@ -735,7 +730,7 @@ async def regenerate_grounded_insight(
     prompt = (
         "You are repairing a RAG answer that was flagged as not grounded.\n"
         "Rewrite the answer using ONLY information supported by the provided context excerpts.\n"
-        "If context is missing details, use cautious language and avoid fabricated specifics.\n"
+        "If context is missing details, set `abstention_message` and avoid fabricated specifics.\n"
         "Return ONLY valid JSON for this schema:\n"
         f"{schema_json}\n\n"
         f"Brand Decision Question:\n{idea}\n\n"

@@ -45,6 +45,7 @@ export interface SessionChatTurn {
 }
 
 export interface InsightOutput {
+  abstention_message?: string | null;
   brand_diagnosis?: string | null;
   market_insight?: string | null;
   suggested_positioning?: string[] | null;

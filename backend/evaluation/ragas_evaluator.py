@@ -225,6 +225,10 @@ def _build_eval_answer_text(generated_output: str) -> str:
         return _truncate_text(generated_output, answer_limit)
 
     lines: list[str] = []
+    abstention_message = payload.get("abstention_message")
+    if isinstance(abstention_message, str) and abstention_message.strip():
+        return _truncate_text(abstention_message, answer_limit)
+
     for key in ("brand_diagnosis", "market_insight", "final_positioning", "target_audience", "chosen_strategy"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():

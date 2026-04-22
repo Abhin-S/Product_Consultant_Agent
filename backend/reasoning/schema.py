@@ -42,6 +42,7 @@ class NotionDatabaseMetadata(BaseModel):
 class InsightOutput(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    abstention_message: str | None = None
     brand_diagnosis: str | None = Field(
         default=None,
         validation_alias=AliasChoices("brand_diagnosis", "idea_summary"),
@@ -63,7 +64,7 @@ class InsightOutput(BaseModel):
         max_length=6,
         validation_alias=AliasChoices("trade_offs", "tradeoffs"),
     )
-    actions: list[ActionItem] = Field(min_length=1, max_length=6)
+    actions: list[ActionItem] = Field(default_factory=list, max_length=6)
     confidence_score: float = Field(ge=0.0, le=1.0)
     notion_page_content: str | None = None
     database_metadata: NotionDatabaseMetadata | None = None

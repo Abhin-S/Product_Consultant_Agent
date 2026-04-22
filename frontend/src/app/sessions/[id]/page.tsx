@@ -31,6 +31,25 @@ function insightSuggestions(insight: InsightOutput): string[] {
   return [];
 }
 
+function abstentionText(
+  insight: InsightOutput,
+  groundingStatus?: SessionChatTurn["grounding_status"]
+): string {
+  const explicit = (insight.abstention_message || "").trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  if (groundingStatus === "insufficient_context" || groundingStatus === "not_grounded") {
+    return (
+      "Sorry, I do not have enough grounded evidence in the available documents to answer that question reliably. "
+      + "Please ask a question tied to the ingested brand materials or add more relevant evidence and try again."
+    );
+  }
+
+  return "";
+}
+
 function clampTopK(value: number): number {
   if (!Number.isFinite(value)) {
     return 1;
@@ -39,7 +58,25 @@ function clampTopK(value: number): number {
   return Math.min(10, Math.max(1, Math.round(value)));
 }
 
-function InsightOutputPanel({ insight }: { insight: InsightOutput }) {
+function InsightOutputPanel({
+  insight,
+  groundingStatus
+}: {
+  insight: InsightOutput;
+  groundingStatus?: SessionChatTurn["grounding_status"];
+}) {
+  const abstentionMessage = abstentionText(insight, groundingStatus);
+  if (abstentionMessage) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Response</p>
+        <p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-800 [overflow-wrap:anywhere]">
+          {abstentionMessage}
+        </p>
+      </div>
+    );
+  }
+
   const diagnosis = insightDiagnosis(insight);
   const suggestions = insightSuggestions(insight);
   const risks = Array.isArray(insight.risks) ? insight.risks : [];
@@ -453,7 +490,7 @@ export default function SessionDetailPage() {
                   </div>
 
                   <div className="mt-4 space-y-4">
-                    <InsightOutputPanel insight={turn.insights} />
+                    <InsightOutputPanel insight={turn.insights} groundingStatus={turn.grounding_status} />
                     <EvaluationPanel evaluationLog={session.evaluation_log} ragasMessage={ragasMessage} />
                     <ActionLogsPanel actionLogs={session.action_logs} />
                   </div>

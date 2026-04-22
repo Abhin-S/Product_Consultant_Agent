@@ -135,6 +135,10 @@ def _safe_mean(values: list[float]) -> float:
 def _insight_to_text(insight) -> str:
     lines: list[str] = []
 
+    abstention_message = str(getattr(insight, "abstention_message", "") or "").strip()
+    if abstention_message:
+        return abstention_message
+
     for value in (
         insight.brand_diagnosis,
         insight.market_insight,
