@@ -86,7 +86,7 @@ Optional keys:
 Notion and Jira credentials (currently optional / planned OAuth):
 
 1. `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`, `NOTION_REDIRECT_URI`
-	- Current project status: Notion OAuth route is a stub, so these are not required to run the app today.
+	- Current project status: Notion OAuth route is working and are implemented.
 	- Expected callback route in current backend router: `http://localhost:8000/integrations/notion/callback`
 	- How to acquire:
 	- Go to Notion integrations portal: https://www.notion.so/my-integrations

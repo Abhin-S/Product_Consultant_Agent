@@ -183,3 +183,47 @@ This is acceptable for lightweight drift monitoring, but not ideal for true qual
 3. RAGAS now tries fallback model candidates (`GEMMA_MODEL_NAME` then `LLM_FALLBACK_MODEL_NAME`) before marking evaluation as failed.
 4. Added `RAGAS_MAX_OUTPUT_TOKENS` as an optional cap. Set it to `0` to remove explicit output-token capping and use provider defaults.
 5. Added RAGAS payload shaping (`RAGAS_MAX_CONTEXT_DOCS`, `RAGAS_CONTEXT_DOC_CHAR_LIMIT`, `RAGAS_ANSWER_CHAR_LIMIT`) so evaluation prompts stay bounded and avoid `LLMDidNotFinishException` caused by oversized context/answer payloads.
+
+## 10) Failed Feature Attempt: Intent-Aware Query Routing (Rolled Back)
+
+### Goal of the attempt
+
+We attempted to extend the assistant from a single diagnostic response mode into four routed response types:
+
+1. `diagnosis`: brand strategy diagnosis and positioning decisions
+2. `planning`: weekly/phase launch execution plans
+3. `informational`: concept and framework explanations
+4. `comparative`: side-by-side option analysis
+
+Routing was designed to classify each user query first, then validate generation against a type-specific schema and prompt.
+
+### What we implemented during the attempt
+
+- Added classifier-based routing logic before generation.
+- Added route map for the four query types.
+- Added multiple output schemas and prompt variants for each type.
+- Updated `/analyze` response shape to support type-dependent outputs.
+
+### Why the attempt failed in this codebase
+
+Observed runtime failures included repeated fallback to diagnostic mode and occasional `422` responses.
+Representative logs:
+
+- `query_classification_failed; defaulting to diagnosis: Invalid query_type returned: <type>`
+- Routed generation executed as `query_type=diagnosis` even when planning intent was explicit.
+
+Primary failure reasons:
+
+1. **Classifier instability under strict JSON contract**
+   - The model intermittently returned placeholder or malformed classification values (for example `<type>`), which failed validation and forced fallback.
+
+2. **Increased failure surface area**
+   - Multi-stage flow (classify -> route -> generate -> per-schema validate) created additional points of failure versus the original single-schema path.
+
+3. **Operational reliability regression**
+   - The complexity added retries, validation edge cases, and route mismatch behavior that reduced predictability for production usage.
+
+### Final decision
+
+This feature attempt was **rolled back**.
+The assistant remains in **diagnostic-only mode** (single schema, single prompt family) for reliability and simpler observability.
