@@ -98,6 +98,13 @@ export interface AnalyzeRequest {
   run_evaluation?: boolean;
 }
 
+export interface SessionChatRequestPayload {
+  message: string;
+  top_k?: number;
+  use_fallback?: boolean;
+  run_evaluation?: boolean;
+}
+
 export interface AnalyzeResponse {
   session_id: string;
   insights: InsightOutput;
@@ -183,7 +190,7 @@ export interface Session {
   actions_taken: number;
   tier1_metrics?: Tier1Metrics | null;
   ragas?: {
-    status: "pending" | "skipped" | "completed" | "failed" | string;
+    status: "pending" | "skipped" | "completed" | "failed" | "not_requested" | string;
     context_precision: number | null;
     context_recall: number | null;
     faithfulness: number | null;
@@ -212,7 +219,7 @@ export interface EvaluationLog {
   context_recall: number | null;
   faithfulness: number | null;
   answer_relevance: number | null;
-  ragas_eval_status: "pending" | "skipped" | "completed" | "failed" | string;
+  ragas_eval_status: "pending" | "skipped" | "completed" | "failed" | "not_requested" | string;
   evaluation_mode?: "ragas";
   query: string;
   retrieved_docs: unknown[];

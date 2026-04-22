@@ -7,6 +7,18 @@ import api from "../../lib/axios";
 import { Session } from "../../lib/types";
 import useRequireAuth from "../../lib/useRequireAuth";
 
+function formatEvalStatus(status: string | undefined): string {
+  if (!status) {
+    return "not requested";
+  }
+
+  if (status === "not_requested") {
+    return "not requested";
+  }
+
+  return String(status).replace(/_/g, " ");
+}
+
 export default function SessionsPage() {
   const router = useRouter();
   const authStatus = useRequireAuth();
@@ -115,7 +127,7 @@ export default function SessionsPage() {
                   <td className="px-4 py-3">{new Date(session.created_at).toLocaleString()}</td>
                   <td className="px-4 py-3">{session.idea_text.slice(0, 60)}</td>
                   <td className="px-4 py-3">{(session.confidence_score ?? 0).toFixed(2)}</td>
-                  <td className="px-4 py-3">{session.ragas?.status || "not_requested"}</td>
+                  <td className="px-4 py-3">{formatEvalStatus(session.ragas?.status)}</td>
                   <td className="px-4 py-3">{session.actions_taken}</td>
                   <td className="px-4 py-3 text-right">
                     <button

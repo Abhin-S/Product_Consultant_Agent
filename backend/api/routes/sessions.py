@@ -1,19 +1,30 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime
+from statistics import mean
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_user
 from auth.models import User
 from config import settings
-from database import get_db
+from database import AsyncSessionLocal, get_db
+from evaluation.lightweight_metrics import (
+    compute_avg_similarity,
+    compute_context_token_ratio,
+    compute_fallback_stats,
+    compute_generation_stats,
+    compute_similarity_distribution,
+)
 from evaluation.models import ActionLog, AnalysisSession, EvaluationLog, SessionChatTurn
+from evaluation.ragas_evaluator import run_ragas_evaluation, should_run_ragas
 from ingestion.embedder import get_embedder_model
 from reasoning.llm_client import (
     build_conservative_insight,
@@ -32,9 +43,31 @@ router = APIRouter(tags=["sessions"])
 
 
 class SessionChatRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
     message: str = Field(min_length=1, max_length=1000)
-    top_k: int = Field(default=settings.TOP_K_DEFAULT, ge=1, le=10)
-    use_fallback: bool = True
+    top_k: int | None = Field(default=settings.TOP_K_DEFAULT, ge=1, le=10, validation_alias=AliasChoices("top_k", "topK"))
+    use_fallback: bool | None = Field(default=True, validation_alias=AliasChoices("use_fallback", "useFallback"))
+    run_evaluation: bool | None = Field(
+        default=True,
+        validation_alias=AliasChoices("run_evaluation", "runEvaluation"),
+    )
+
+
+async def _run_ragas_in_background(
+    session_id: UUID,
+    query: str,
+    retrieved_docs: list[str],
+    generated_output: str,
+) -> None:
+    async with AsyncSessionLocal() as bg_db:
+        await run_ragas_evaluation(
+            session_id=session_id,
+            query=query,
+            retrieved_docs=retrieved_docs,
+            generated_output=generated_output,
+            db=bg_db,
+        )
 
 
 def _serialize_insight_output(raw_insight: dict[str, Any] | None) -> dict[str, Any]:
@@ -455,11 +488,19 @@ async def chat_in_session(
         message=user_message,
     )
 
-    local_docs, low_confidence, retrieval_diagnostics = retrieve_local(retrieval_query, payload.top_k)
+    top_k = payload.top_k if payload.top_k is not None else settings.TOP_K_DEFAULT
+    use_fallback = bool(payload.use_fallback) if payload.use_fallback is not None else True
+    run_evaluation = bool(payload.run_evaluation) if payload.run_evaluation is not None else True
+
+    local_docs, low_confidence, retrieval_diagnostics = retrieve_local(retrieval_query, top_k)
 
     dynamic_chunks = []
-    if low_confidence and payload.use_fallback:
-        dynamic_chunks, _ = await retrieve_dynamic_chunks(
+    filter_stats = {
+        "fetched": 0,
+        "after_recency": 0,
+    }
+    if low_confidence and use_fallback:
+        dynamic_chunks, filter_stats = await retrieve_dynamic_chunks(
             query=retrieval_query,
             local_docs=local_docs,
             embedder=get_embedder_model(),
@@ -470,19 +511,23 @@ async def chat_in_session(
     should_abstain, abstain_reason, coverage_metrics = should_abstain_for_coverage(
         context_bundle,
         low_confidence=low_confidence,
-        fallback_requested=payload.use_fallback,
+        fallback_requested=use_fallback,
     )
 
     if should_abstain:
         insight = build_insufficient_context_insight(user_message, context_bundle, abstain_reason)
+        latency_ms = 0.0
+        retry_count = 0
         grounding_status = "insufficient_context"
         faithfulness_corrected = False
     elif settings.BYPASS_LLM_CALLS:
         insight = build_conservative_insight(reasoning_query, context_bundle)
+        latency_ms = 0.0
+        retry_count = 0
         grounding_status = "bypassed"
         faithfulness_corrected = False
     else:
-        insight, _latency_ms, _retry_count = await generate_insight(reasoning_query, context_bundle)
+        insight, latency_ms, retry_count = await generate_insight(reasoning_query, context_bundle)
         faithfulness_corrected = False
         if settings.ENABLE_GROUNDING_CHECK:
             insight, grounding_status, faithfulness_corrected = await enforce_faithfulness(
@@ -508,6 +553,22 @@ async def chat_in_session(
         }
     )
 
+    similarity_mean = compute_avg_similarity(context_bundle.docs)
+    similarity_dist = compute_similarity_distribution(context_bundle.docs)
+    token_ratio = compute_context_token_ratio(context_bundle)
+    fallback_relevance = [chunk.relevance_score for chunk in dynamic_chunks if chunk.relevance_score is not None]
+    fallback_stats = compute_fallback_stats(
+        used_fallback=context_bundle.used_fallback,
+        articles_fetched=filter_stats.get("fetched", 0),
+        articles_surviving=filter_stats.get("after_recency", 0),
+        avg_fallback_relevance=(mean(fallback_relevance) if fallback_relevance else None),
+    )
+    generation_stats = compute_generation_stats(
+        latency_ms=latency_ms,
+        retry_count=retry_count,
+        validation_passed=grounding_status != "not_grounded",
+    )
+
     new_turn = SessionChatTurn(
         session_id=session.id,
         user_message=user_message[:2000],
@@ -530,10 +591,83 @@ async def chat_in_session(
     session.confidence_score = insight.confidence_score
     session.used_fallback = context_bundle.used_fallback
 
-    await db.commit()
+    evaluation_status = "not_requested"
+    run_ragas = False
+    if run_evaluation:
+        evaluation_status = "skipped"
+        run_ragas = should_run_ragas()
+        if run_ragas:
+            evaluation_status = "pending"
 
     eval_q = await db.execute(select(EvaluationLog).where(EvaluationLog.session_id == session.id))
     eval_row = eval_q.scalar_one_or_none()
+    if eval_row is None:
+        eval_row = EvaluationLog(
+            session_id=session.id,
+            avg_similarity_score=similarity_mean,
+            min_similarity_score=similarity_dist["min"],
+            max_similarity_score=similarity_dist["max"],
+            docs_above_threshold=similarity_dist["above_threshold"],
+            total_docs_retrieved=similarity_dist["total"],
+            context_total_tokens=token_ratio["total_tokens"],
+            context_local_ratio=token_ratio["local_ratio"],
+            context_dynamic_ratio=token_ratio["dynamic_ratio"],
+            used_fallback=fallback_stats["used_fallback"],
+            articles_fetched=fallback_stats["articles_fetched"],
+            articles_surviving=fallback_stats["articles_surviving"],
+            avg_fallback_relevance=fallback_stats["avg_fallback_relevance"],
+            llm_latency_ms=generation_stats["latency_ms"],
+            llm_retry_count=generation_stats["retry_count"],
+            llm_validation_passed=generation_stats["validation_passed"],
+            ragas_eval_status=evaluation_status,
+            query=user_message,
+            retrieved_docs=[],
+            generated_output="",
+        )
+        db.add(eval_row)
+
+    eval_row.avg_similarity_score = similarity_mean
+    eval_row.min_similarity_score = similarity_dist["min"]
+    eval_row.max_similarity_score = similarity_dist["max"]
+    eval_row.docs_above_threshold = similarity_dist["above_threshold"]
+    eval_row.total_docs_retrieved = similarity_dist["total"]
+    eval_row.context_total_tokens = token_ratio["total_tokens"]
+    eval_row.context_local_ratio = token_ratio["local_ratio"]
+    eval_row.context_dynamic_ratio = token_ratio["dynamic_ratio"]
+    eval_row.used_fallback = fallback_stats["used_fallback"]
+    eval_row.articles_fetched = fallback_stats["articles_fetched"]
+    eval_row.articles_surviving = fallback_stats["articles_surviving"]
+    eval_row.avg_fallback_relevance = fallback_stats["avg_fallback_relevance"]
+    eval_row.llm_latency_ms = generation_stats["latency_ms"]
+    eval_row.llm_retry_count = generation_stats["retry_count"]
+    eval_row.llm_validation_passed = generation_stats["validation_passed"]
+    eval_row.context_precision = None
+    eval_row.context_recall = None
+    eval_row.faithfulness = None
+    eval_row.answer_relevance = None
+    eval_row.ragas_eval_status = evaluation_status
+    eval_row.query = user_message
+    eval_row.retrieved_docs = [
+        {
+            "source": doc.source,
+            "doc_type": doc.doc_type,
+            "similarity_score": doc.similarity_score,
+        }
+        for doc in context_bundle.docs
+    ]
+    eval_row.generated_output = json.dumps(insight.model_dump(), ensure_ascii=True)
+
+    await db.commit()
+
+    if run_ragas:
+        asyncio.create_task(
+            _run_ragas_in_background(
+                session.id,
+                user_message,
+                [doc.text for doc in context_bundle.docs],
+                json.dumps(insight.model_dump(), ensure_ascii=True),
+            )
+        )
 
     action_q = await db.execute(
         select(ActionLog).where(ActionLog.session_id == session.id).order_by(ActionLog.created_at.desc())
