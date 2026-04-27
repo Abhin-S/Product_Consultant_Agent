@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from utils.datetime_utils import now_ist
 import logging
 from typing import Any
 
@@ -398,7 +398,7 @@ def append_notion_report_to_page(
 
     title = f"{idea_name} - Session {session_id[:8]}"
 
-    created_at = datetime.now(timezone.utc).isoformat()
+    created_at = now_ist().isoformat()
     children: list[dict[str, Any]] = [
         _heading_block("Brand Strategy Document"),
         _paragraph_block(f"Title: {title}"),

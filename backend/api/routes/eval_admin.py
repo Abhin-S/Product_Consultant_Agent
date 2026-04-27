@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import and_, func, select
@@ -10,6 +10,7 @@ from auth.dependencies import get_current_user
 from auth.models import User
 from database import get_db
 from evaluation.models import AnalysisSession, EvaluationLog
+from utils.datetime_utils import IST, to_ist_iso
 
 
 router = APIRouter(prefix="/eval", tags=["evaluation"])
@@ -110,9 +111,9 @@ async def list_eval_sessions(
     if used_fallback is not None:
         filters.append(EvaluationLog.used_fallback == used_fallback)
     if date_from is not None:
-        filters.append(EvaluationLog.created_at >= datetime.combine(date_from, time.min, tzinfo=timezone.utc))
+        filters.append(EvaluationLog.created_at >= datetime.combine(date_from, time.min, tzinfo=IST))
     if date_to is not None:
-        filters.append(EvaluationLog.created_at <= datetime.combine(date_to, time.max, tzinfo=timezone.utc))
+        filters.append(EvaluationLog.created_at <= datetime.combine(date_to, time.max, tzinfo=IST))
 
     where_clause = and_(*filters) if filters else None
 
@@ -170,7 +171,7 @@ async def list_eval_sessions(
             "query": row.query,
             "retrieved_docs": row.retrieved_docs,
             "generated_output": row.generated_output,
-            "created_at": row.created_at.isoformat() if isinstance(row.created_at, datetime) else None,
+            "created_at": to_ist_iso(row.created_at),
         }
         for row in rows
     ]

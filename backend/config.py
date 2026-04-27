@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # RAG
     CONFIDENCE_THRESHOLD: float = 0.45
-    TOP_K_DEFAULT: int = 5
+    TOP_K_DEFAULT: int = 10
     MAX_CONTEXT_TOKENS: int = 3000
     LLM_MAX_RETRIES: int = 3
     MODEL_REQUEST_TIMEOUT_SECONDS: int = 30
@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     RRF_K: int = 60
     CRAG_MIN_RELEVANT_DOCS: int = 2
     ENABLE_GROUNDING_CHECK: bool = True
+    ENABLE_HYBRID_RETRIEVAL: bool = True
+    BM25_K1: float = 1.5
+    BM25_B: float = 0.75
+    LEXICAL_OVERSAMPLE_CAP: int = 80
+    ENABLE_CROSS_ENCODER_RERANK: bool = True
+    CROSS_ENCODER_MODEL_NAME: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    RERANK_MAX_CANDIDATES: int = 40
+    RAG_DEBUG_MODE: bool = False
     PARENT_CHUNK_SIZE: int = 1800
     PARENT_CHUNK_OVERLAP: int = 180
     CHILD_CHUNK_SIZE: int = 500
@@ -82,6 +90,6 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
+    
 
 settings = Settings()

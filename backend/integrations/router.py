@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 import re
 from typing import Literal
 from urllib.parse import urlparse
@@ -13,6 +12,7 @@ from database import get_db
 from integrations.encryption import encrypt_token
 from integrations.models import UserIntegration
 from integrations.schemas import UserIntegrationCreate, UserIntegrationOut
+from utils.datetime_utils import now_ist
 
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -125,7 +125,7 @@ async def connect_integration(
         if payload.database_id is not None:
             existing.database_id = normalized_database_id
 
-        existing.updated_at = datetime.now(timezone.utc)
+        existing.updated_at = now_ist()
         await db.commit()
         await db.refresh(existing)
         return UserIntegrationOut.model_validate(existing)

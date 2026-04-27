@@ -5,6 +5,7 @@ from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, Uui
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
+from utils.datetime_utils import now_ist
 
 
 class UserIntegration(Base):
@@ -19,9 +20,9 @@ class UserIntegration(Base):
     access_token_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     workspace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     database_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now_ist)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=now_ist, onupdate=now_ist
     )
 
     user = relationship("User", back_populates="integrations")

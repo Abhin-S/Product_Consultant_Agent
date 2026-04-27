@@ -36,10 +36,20 @@ export interface SessionChatTurn {
   faithfulness_corrected?: boolean;
   used_fallback: boolean;
   retrieval_diagnostics?: {
+    query_intent?: "factual" | "analytical" | "inferential" | string;
+    entity_hints?: string[];
     query_variants?: string[];
     retrieved_before_crag?: number;
     retrieved_after_crag?: number;
+    retrieved_after_rerank?: number;
+    retrieved_after_diversification?: number;
     parent_context_docs?: number;
+    hybrid_retrieval_enabled?: boolean;
+    dense_candidates?: number;
+    lexical_candidates?: number;
+    max_retrieval_score?: number;
+    retrieved_sources?: string[];
+    retrieval_query_mode?: "current_only" | "contextual" | string;
   } | null;
   created_at: string | null;
 }
@@ -120,10 +130,20 @@ export interface AnalyzeResponse {
   used_fallback: boolean;
   retrieved_sources: string[];
   retrieval_diagnostics?: {
+    query_intent?: "factual" | "analytical" | "inferential" | string;
+    entity_hints?: string[];
     query_variants: string[];
     retrieved_before_crag: number;
     retrieved_after_crag: number;
+    retrieved_after_rerank?: number;
+    retrieved_after_diversification?: number;
     parent_context_docs?: number;
+    hybrid_retrieval_enabled?: boolean;
+    dense_candidates?: number;
+    lexical_candidates?: number;
+    max_retrieval_score?: number;
+    retrieved_sources?: string[];
+    retrieval_query_mode?: "current_only" | "contextual" | string;
     coverage_metrics?: {
       doc_count: number;
       strong_doc_count: number;
@@ -271,10 +291,20 @@ export interface SessionChatResponse {
   evaluation_log?: EvaluationLog | null;
   action_logs?: SessionActionLog[];
   retrieval_diagnostics?: {
+    query_intent?: "factual" | "analytical" | "inferential" | string;
+    entity_hints?: string[];
     query_variants: string[];
     retrieved_before_crag: number;
     retrieved_after_crag: number;
+    retrieved_after_rerank?: number;
+    retrieved_after_diversification?: number;
     parent_context_docs?: number;
+    hybrid_retrieval_enabled?: boolean;
+    dense_candidates?: number;
+    lexical_candidates?: number;
+    max_retrieval_score?: number;
+    retrieved_sources?: string[];
+    retrieval_query_mode?: "current_only" | "contextual" | string;
     coverage_metrics?: {
       doc_count: number;
       strong_doc_count: number;

@@ -17,10 +17,20 @@ type Props = {
     | "insufficient_context";
   faithfulnessCorrected?: boolean;
   retrievalDiagnostics?: {
+    query_intent?: "factual" | "analytical" | "inferential" | string;
+    entity_hints?: string[];
     query_variants: string[];
     retrieved_before_crag: number;
     retrieved_after_crag: number;
+    retrieved_after_rerank?: number;
+    retrieved_after_diversification?: number;
     parent_context_docs?: number;
+    hybrid_retrieval_enabled?: boolean;
+    dense_candidates?: number;
+    lexical_candidates?: number;
+    max_retrieval_score?: number;
+    retrieved_sources?: string[];
+    retrieval_query_mode?: "current_only" | "contextual" | string;
     coverage_metrics?: {
       doc_count: number;
       strong_doc_count: number;
@@ -100,6 +110,7 @@ export default function InsightDisplay({
   const tradeOffs = compactList(insight.trade_offs);
   const risks = compactList(insight.risks);
   const opportunities = compactList(insight.opportunities);
+  const retrievedSources = compactList(retrievalDiagnostics?.retrieved_sources);
 
   const metadataName = (insight.database_metadata?.name || "").trim();
   const metadataPositioning =
@@ -148,6 +159,9 @@ export default function InsightDisplay({
             />
           </div>
           <p className="mt-1 text-sm text-slate-600">{insight.confidence_score.toFixed(2)}</p>
+          <p className="mt-1 text-xs text-slate-500">
+            This reflects retrieval similarity coverage, not a guarantee that the final answer is complete.
+          </p>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
@@ -361,13 +375,52 @@ export default function InsightDisplay({
           {retrievalDiagnostics && (
             <>
               <p>Query variants: {retrievalDiagnostics.query_variants.length}</p>
+              {retrievalDiagnostics.query_intent && (
+                <p>Query intent: {retrievalDiagnostics.query_intent}</p>
+              )}
+              {retrievalDiagnostics.entity_hints && retrievalDiagnostics.entity_hints.length > 0 && (
+                <p>Entity hints: {retrievalDiagnostics.entity_hints.join(", ")}</p>
+              )}
+              {typeof retrievalDiagnostics.max_retrieval_score === "number" && (
+                <p>Max retrieval score: {retrievalDiagnostics.max_retrieval_score.toFixed(3)}</p>
+              )}
+              {typeof retrievalDiagnostics.hybrid_retrieval_enabled === "boolean" && (
+                <p>Hybrid retrieval: {retrievalDiagnostics.hybrid_retrieval_enabled ? "enabled" : "disabled"}</p>
+              )}
+              {typeof retrievalDiagnostics.dense_candidates === "number" && (
+                <p>Dense candidates: {retrievalDiagnostics.dense_candidates}</p>
+              )}
+              {typeof retrievalDiagnostics.lexical_candidates === "number" && (
+                <p>Lexical candidates: {retrievalDiagnostics.lexical_candidates}</p>
+              )}
               <p>
                 CRAG docs kept: {retrievalDiagnostics.retrieved_after_crag}/
                 {retrievalDiagnostics.retrieved_before_crag}
               </p>
+              {typeof retrievalDiagnostics.retrieved_after_rerank === "number" && (
+                <p>Reranked docs kept: {retrievalDiagnostics.retrieved_after_rerank}</p>
+              )}
+              {typeof retrievalDiagnostics.retrieved_after_diversification === "number" && (
+                <p>Diversified docs kept: {retrievalDiagnostics.retrieved_after_diversification}</p>
+              )}
               <p>Parent context docs: {retrievalDiagnostics.parent_context_docs ?? 0}</p>
+              {retrievalDiagnostics.retrieval_query_mode && (
+                <p>Retrieval mode: {retrievalDiagnostics.retrieval_query_mode}</p>
+              )}
               {retrievalDiagnostics.abstain_reason && (
                 <p className="md:col-span-2">Coverage warning: {retrievalDiagnostics.abstain_reason}</p>
+              )}
+              {retrievedSources.length > 0 && (
+                <div className="md:col-span-2">
+                  <p className="mb-1">Retrieved sources:</p>
+                  <ul className="space-y-1 text-xs text-slate-600">
+                    {retrievedSources.map((source) => (
+                      <li key={source} className="rounded bg-slate-50 px-2 py-1">
+                        {source}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </>
           )}

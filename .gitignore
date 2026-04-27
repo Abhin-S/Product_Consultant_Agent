@@ -26,6 +26,7 @@ backend/processed_data/parent_chunks.json
 *.sqlite
 *.sqlite3
 **/chroma_db/
+backend-mc_key.pem
 
 # Frontend Node environment and artifacts
 frontend/node_modules/

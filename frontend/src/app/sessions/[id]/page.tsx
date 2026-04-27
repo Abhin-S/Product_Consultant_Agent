@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import api from "../../../lib/axios";
+import { formatDateTimeIST } from "../../../lib/datetime";
 import {
   InsightOutput,
+  RetrievalDiagnostics,
   SessionActionLog,
   SessionChatRequestPayload,
   SessionChatResponse,
@@ -56,6 +58,42 @@ function clampTopK(value: number): number {
   }
 
   return Math.min(10, Math.max(1, Math.round(value)));
+}
+
+function compactList(values: Array<string | null | undefined> | null | undefined): string[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}
+
+function degradedFunctionLabel(value: string): string {
+  if (value === "query_expansion_llm_assist") return "Query Expansion LLM Assist";
+  if (value === "relevance_grading_llm_assist") return "Relevance Grading LLM Assist";
+  if (value === "reasoning_generation_llm") return "Reasoning Generation LLM";
+  return value.replace(/_/g, " ");
+}
+
+function tier1FromEvaluationLog(
+  evaluationLog: SessionDetail["evaluation_log"]
+): SessionDetail["tier1_metrics"] {
+  if (!evaluationLog) {
+    return null;
+  }
+
+  return {
+    avg_similarity_score: evaluationLog.avg_similarity_score,
+    docs_above_threshold: evaluationLog.docs_above_threshold,
+    total_docs_retrieved: evaluationLog.total_docs_retrieved,
+    context_total_tokens: evaluationLog.context_total_tokens,
+    context_local_ratio: evaluationLog.context_local_ratio,
+    context_dynamic_ratio: evaluationLog.context_dynamic_ratio,
+    used_fallback: evaluationLog.used_fallback,
+    articles_fetched: evaluationLog.articles_fetched,
+    articles_surviving: evaluationLog.articles_surviving,
+    llm_latency_ms: evaluationLog.llm_latency_ms,
+    llm_retry_count: evaluationLog.llm_retry_count,
+  };
 }
 
 function InsightOutputPanel({
@@ -216,47 +254,142 @@ function InsightOutputPanel({
 
 function EvaluationPanel({
   evaluationLog,
+  tier1Metrics,
+  retrievalDiagnostics,
+  retrievedSources,
   ragasMessage,
 }: {
   evaluationLog: SessionDetail["evaluation_log"];
+  tier1Metrics: SessionDetail["tier1_metrics"];
+  retrievalDiagnostics?: RetrievalDiagnostics | null;
+  retrievedSources: string[];
   ragasMessage: string;
 }) {
+  const effectiveTier1 = tier1Metrics || (evaluationLog
+    ? {
+        avg_similarity_score: evaluationLog.avg_similarity_score,
+        docs_above_threshold: evaluationLog.docs_above_threshold,
+        total_docs_retrieved: evaluationLog.total_docs_retrieved,
+        context_total_tokens: evaluationLog.context_total_tokens,
+        context_local_ratio: evaluationLog.context_local_ratio,
+        context_dynamic_ratio: evaluationLog.context_dynamic_ratio,
+        used_fallback: evaluationLog.used_fallback,
+        articles_fetched: evaluationLog.articles_fetched,
+        articles_surviving: evaluationLog.articles_surviving,
+        llm_latency_ms: evaluationLog.llm_latency_ms,
+        llm_retry_count: evaluationLog.llm_retry_count,
+      }
+    : null);
+
+  const sources =
+    Array.isArray(retrievalDiagnostics?.retrieved_sources) && retrievalDiagnostics?.retrieved_sources.length > 0
+      ? retrievalDiagnostics.retrieved_sources
+      : retrievedSources;
+
+  const quotaSafeModeActive = retrievalDiagnostics?.quota_safe_mode_active === true;
+  const quotaSafeScope = (retrievalDiagnostics?.quota_safe_mode_scope || "").trim();
+  const quotaSafeMessage = (retrievalDiagnostics?.quota_safe_mode_message || "").trim();
+  const degradedFunctions = compactList(retrievalDiagnostics?.critical_functions_temporarily_degraded);
+
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evaluation</p>
-      {evaluationLog ? (
+      {quotaSafeModeActive && (
+        <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <p className="font-semibold">Quota-safe mode activated</p>
+          <p className="mt-1">
+            {quotaSafeMessage || "Provider quota was reached, so fallback protection is active for this response."}
+          </p>
+          {quotaSafeScope && (
+            <p className="mt-1 text-xs uppercase tracking-wide text-amber-800">Scope: {quotaSafeScope}</p>
+          )}
+          {degradedFunctions.length > 0 && (
+            <p className="mt-1">
+              Temporarily degraded functions: {degradedFunctions.map(degradedFunctionLabel).join(", ")}
+            </p>
+          )}
+        </div>
+      )}
+      {effectiveTier1 ? (
         <>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full table-fixed text-left text-sm">
-              <tbody>
-                <tr className="border-b">
-                  <td className="py-2 pr-3 font-medium align-top break-words [overflow-wrap:anywhere]">Avg Similarity</td>
-                  <td className="py-2 align-top break-words [overflow-wrap:anywhere]">
-                    {evaluationLog.avg_similarity_score.toFixed(3)}
-                  </td>
-                </tr>
-                <tr className="border-b">
-                  <td className="py-2 pr-3 font-medium align-top break-words [overflow-wrap:anywhere]">Docs Above Threshold</td>
-                  <td className="py-2 align-top break-words [overflow-wrap:anywhere]">{evaluationLog.docs_above_threshold}</td>
-                </tr>
-                <tr className="border-b">
-                  <td className="py-2 pr-3 font-medium align-top break-words [overflow-wrap:anywhere]">Context Total Tokens</td>
-                  <td className="py-2 align-top break-words [overflow-wrap:anywhere]">{evaluationLog.context_total_tokens}</td>
-                </tr>
-                <tr className="border-b">
-                  <td className="py-2 pr-3 font-medium align-top break-words [overflow-wrap:anywhere]">Fallback Used</td>
-                  <td className="py-2 align-top break-words [overflow-wrap:anywhere]">
-                    {evaluationLog.used_fallback ? "Yes" : "No"}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="py-2 pr-3 font-medium align-top break-words [overflow-wrap:anywhere]">LLM Latency (ms)</td>
-                  <td className="py-2 align-top break-words [overflow-wrap:anywhere]">
-                    {evaluationLog.llm_latency_ms.toFixed(1)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div className="mt-2 grid gap-2 text-sm text-slate-700 md:grid-cols-2">
+            <p>Avg similarity: {effectiveTier1.avg_similarity_score.toFixed(3)}</p>
+            <p>Docs above threshold: {effectiveTier1.docs_above_threshold}</p>
+            <p>Total docs retrieved: {effectiveTier1.total_docs_retrieved}</p>
+            <p>Context tokens: {effectiveTier1.context_total_tokens}</p>
+            <p>Local context ratio: {(effectiveTier1.context_local_ratio * 100).toFixed(1)}%</p>
+            <p>Dynamic context ratio: {(effectiveTier1.context_dynamic_ratio * 100).toFixed(1)}%</p>
+            <p>LLM latency: {effectiveTier1.llm_latency_ms.toFixed(1)} ms</p>
+            <p>LLM retry count: {effectiveTier1.llm_retry_count}</p>
+            {retrievalDiagnostics && (
+              <>
+                <p>Query variants: {retrievalDiagnostics.query_variants?.length ?? 0}</p>
+                {retrievalDiagnostics.query_intent && <p>Query intent: {retrievalDiagnostics.query_intent}</p>}
+                {retrievalDiagnostics.query_domain && <p>Query domain: {retrievalDiagnostics.query_domain}</p>}
+                {typeof retrievalDiagnostics.max_retrieval_score === "number" && (
+                  <p>Max retrieval score: {retrievalDiagnostics.max_retrieval_score.toFixed(3)}</p>
+                )}
+                {typeof retrievalDiagnostics.entity_coverage_satisfied === "boolean" && (
+                  <p>Entity coverage: {retrievalDiagnostics.entity_coverage_satisfied ? "satisfied" : "missing"}</p>
+                )}
+                {typeof retrievalDiagnostics.domain_coverage_satisfied === "boolean" && (
+                  <p>Domain coverage: {retrievalDiagnostics.domain_coverage_satisfied ? "satisfied" : "missing"}</p>
+                )}
+                {typeof retrievalDiagnostics.answerability_score === "number" && (
+                  <p>Answerability score: {retrievalDiagnostics.answerability_score.toFixed(3)}</p>
+                )}
+                {retrievalDiagnostics.query_expansion_mode && (
+                  <p>Query expansion mode: {retrievalDiagnostics.query_expansion_mode}</p>
+                )}
+                {retrievalDiagnostics.relevance_grading_mode && (
+                  <p>Relevance grading mode: {retrievalDiagnostics.relevance_grading_mode}</p>
+                )}
+                {typeof retrievalDiagnostics.retrieval_quota_retry_after_seconds === "number" &&
+                  retrievalDiagnostics.retrieval_quota_retry_after_seconds > 0 && (
+                    <p>
+                      Retrieval quota retry after: {retrievalDiagnostics.retrieval_quota_retry_after_seconds.toFixed(1)}s
+                    </p>
+                )}
+                {typeof retrievalDiagnostics.fallback_attempted === "boolean" && (
+                  <p>Fallback attempted: {retrievalDiagnostics.fallback_attempted ? "yes" : "no"}</p>
+                )}
+                {typeof retrievalDiagnostics.fallback_used === "boolean" && (
+                  <p>Fallback used: {retrievalDiagnostics.fallback_used ? "yes" : "no"}</p>
+                )}
+                {typeof retrievalDiagnostics.news_api_configured === "boolean" && (
+                  <p>NewsAPI key configured: {retrievalDiagnostics.news_api_configured ? "yes" : "no"}</p>
+                )}
+                {typeof retrievalDiagnostics.gnews_api_configured === "boolean" && (
+                  <p>GNews key configured: {retrievalDiagnostics.gnews_api_configured ? "yes" : "no"}</p>
+                )}
+                {retrievalDiagnostics.abstain_reason && (
+                  <p className="md:col-span-2">Coverage warning: {retrievalDiagnostics.abstain_reason}</p>
+                )}
+                {degradedFunctions.length > 0 && (
+                  <p className="md:col-span-2">
+                    Temporarily degraded functions: {degradedFunctions.map(degradedFunctionLabel).join(", ")}
+                  </p>
+                )}
+              </>
+            )}
+            {effectiveTier1.used_fallback && (
+              <>
+                <p>Articles fetched: {effectiveTier1.articles_fetched}</p>
+                <p>Articles surviving: {effectiveTier1.articles_surviving}</p>
+              </>
+            )}
+            {sources.length > 0 && (
+              <div className="md:col-span-2">
+                <p className="mb-1">Retrieved sources:</p>
+                <ul className="space-y-1 text-xs text-slate-600">
+                  {sources.map((source) => (
+                    <li key={source} className="rounded bg-slate-50 px-2 py-1 break-words [overflow-wrap:anywhere]">
+                      {source}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           <p className="mt-3 text-sm font-medium text-slate-700">RAGAS Status: {ragasMessage}</p>
         </>
@@ -295,7 +428,7 @@ function ActionLogsPanel({ actionLogs }: { actionLogs: SessionActionLog[] }) {
                   <td className="px-2 py-2 align-top break-words [overflow-wrap:anywhere]">{log.target_provider}</td>
                   <td className="px-2 py-2 align-top break-words [overflow-wrap:anywhere]">{log.status}</td>
                   <td className="px-2 py-2 align-top break-words [overflow-wrap:anywhere]">
-                    {new Date(log.created_at).toLocaleString()}
+                    {formatDateTimeIST(log.created_at)}
                   </td>
                 </tr>
               ))
@@ -384,6 +517,15 @@ export default function SessionDetailPage() {
               confidence_score: data.insights.confidence_score,
               used_fallback: data.used_fallback,
               evaluation_log: data.evaluation_log ?? previous.evaluation_log,
+              tier1_metrics: data.evaluation_log
+                ? tier1FromEvaluationLog(data.evaluation_log)
+                : previous.tier1_metrics,
+              retrieval_diagnostics:
+                data.retrieval_diagnostics ?? previous.retrieval_diagnostics,
+              retrieved_sources:
+                data.retrieval_diagnostics?.retrieved_sources
+                  ? data.retrieval_diagnostics.retrieved_sources
+                  : previous.retrieved_sources,
               action_logs: data.action_logs ?? previous.action_logs,
               chat_turns: data.chat_turn
                 ? [...(previous.chat_turns || []), (data.chat_turn as SessionChatTurn)]
@@ -424,7 +566,7 @@ export default function SessionDetailPage() {
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow">
         <h1 className="mb-2 text-2xl font-bold">Session Detail</h1>
-        <p className="text-sm text-slate-500">{new Date(session.created_at).toLocaleString()}</p>
+        <p className="text-sm text-slate-500">{formatDateTimeIST(session.created_at)}</p>
         <h2 className="mt-4 text-sm font-semibold uppercase tracking-wide text-slate-500">Decision Question</h2>
         <p className="mt-1 whitespace-pre-wrap break-words text-slate-800 [overflow-wrap:anywhere]">
           {session.idea_text}
@@ -438,6 +580,15 @@ export default function SessionDetailPage() {
         </p>
         <div className="mt-4">
           <InsightOutputPanel insight={initialInsight} />
+        </div>
+        <div className="mt-4">
+          <EvaluationPanel
+            evaluationLog={session.evaluation_log}
+            tier1Metrics={session.tier1_metrics ?? tier1FromEvaluationLog(session.evaluation_log)}
+            retrievalDiagnostics={session.retrieval_diagnostics}
+            retrievedSources={session.retrieved_sources || []}
+            ragasMessage={ragasMessage}
+          />
         </div>
       </section>
 
@@ -476,7 +627,7 @@ export default function SessionDetailPage() {
                     <p className="text-sm font-semibold text-slate-800">Assistant Response</p>
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">
-                        {turn.created_at ? new Date(turn.created_at).toLocaleString() : "Just now"}
+                        {turn.created_at ? formatDateTimeIST(turn.created_at) : "Just now"}
                       </span>
                       {turn.grounding_status && (
                         <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-900">
@@ -491,7 +642,15 @@ export default function SessionDetailPage() {
 
                   <div className="mt-4 space-y-4">
                     <InsightOutputPanel insight={turn.insights} groundingStatus={turn.grounding_status} />
-                    <EvaluationPanel evaluationLog={session.evaluation_log} ragasMessage={ragasMessage} />
+                    <EvaluationPanel
+                      evaluationLog={session.evaluation_log}
+                      tier1Metrics={session.tier1_metrics ?? tier1FromEvaluationLog(session.evaluation_log)}
+                      retrievalDiagnostics={turn.retrieval_diagnostics ?? session.retrieval_diagnostics}
+                      retrievedSources={
+                        turn.retrieval_diagnostics?.retrieved_sources || session.retrieved_sources || []
+                      }
+                      ragasMessage={ragasMessage}
+                    />
                     <ActionLogsPanel actionLogs={session.action_logs} />
                   </div>
                 </div>
@@ -573,33 +732,19 @@ export default function SessionDetailPage() {
               session_id: session.id,
               insights: latestInsightForExecution,
               used_fallback: session.used_fallback,
-              tier1_metrics: session.evaluation_log
-                ? {
-                    avg_similarity_score: session.evaluation_log.avg_similarity_score,
-                    docs_above_threshold: session.evaluation_log.docs_above_threshold,
-                    total_docs_retrieved: session.evaluation_log.total_docs_retrieved,
-                    context_total_tokens: session.evaluation_log.context_total_tokens,
-                    context_local_ratio: session.evaluation_log.context_local_ratio,
-                    context_dynamic_ratio: session.evaluation_log.context_dynamic_ratio,
-                    used_fallback: session.evaluation_log.used_fallback,
-                    articles_fetched: session.evaluation_log.articles_fetched,
-                    articles_surviving: session.evaluation_log.articles_surviving,
-                    llm_latency_ms: session.evaluation_log.llm_latency_ms,
-                    llm_retry_count: session.evaluation_log.llm_retry_count
-                  }
-                : {
-                    avg_similarity_score: 0,
-                    docs_above_threshold: 0,
-                    total_docs_retrieved: 0,
-                    context_total_tokens: 0,
-                    context_local_ratio: 0,
-                    context_dynamic_ratio: 0,
-                    used_fallback: false,
-                    articles_fetched: 0,
-                    articles_surviving: 0,
-                    llm_latency_ms: 0,
-                    llm_retry_count: 0
-                  },
+              tier1_metrics: session.tier1_metrics || tier1FromEvaluationLog(session.evaluation_log) || {
+                avg_similarity_score: 0,
+                docs_above_threshold: 0,
+                total_docs_retrieved: 0,
+                context_total_tokens: 0,
+                context_local_ratio: 0,
+                context_dynamic_ratio: 0,
+                used_fallback: false,
+                articles_fetched: 0,
+                articles_surviving: 0,
+                llm_latency_ms: 0,
+                llm_retry_count: 0,
+              },
               evaluation_status:
                 session.evaluation_log?.ragas_eval_status === "pending"
                   ? "pending"

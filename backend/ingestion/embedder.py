@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import datetime, timezone
 import re
 
@@ -12,6 +13,8 @@ from retrieval.vector_store import get_collection
 
 MODEL_NAME = "all-MiniLM-L6-v2"
 _embedder: SentenceTransformer | None = None
+_query_embed_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+_QUERY_EMBED_CACHE_MAX = 2048
 
 
 def load_embedder_model() -> SentenceTransformer:
@@ -37,7 +40,21 @@ def embed_texts(texts: list[str]) -> np.ndarray:
 
 
 def embed_query(query: str) -> np.ndarray:
-    return embed_texts([query])[0]
+    normalized = " ".join((query or "").split()).strip().lower()
+    if normalized:
+        cached = _query_embed_cache.get(normalized)
+        if cached is not None:
+            _query_embed_cache.move_to_end(normalized)
+            return cached
+
+    vector = embed_texts([query])[0]
+    if normalized:
+        _query_embed_cache[normalized] = vector
+        _query_embed_cache.move_to_end(normalized)
+        while len(_query_embed_cache) > _QUERY_EMBED_CACHE_MAX:
+            _query_embed_cache.popitem(last=False)
+
+    return vector
 
 
 def _coerce_positive_int(value: object) -> int | None:

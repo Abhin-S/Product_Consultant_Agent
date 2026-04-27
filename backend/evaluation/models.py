@@ -5,6 +5,7 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, Stri
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database import Base
+from utils.datetime_utils import now_ist
 
 
 class AnalysisSession(Base):
@@ -18,7 +19,7 @@ class AnalysisSession(Base):
     raw_output: Mapped[dict] = mapped_column(JSON, nullable=False)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     used_fallback: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now_ist)
 
     user = relationship("User", back_populates="analysis_sessions")
     evaluation_log = relationship(
@@ -68,7 +69,7 @@ class EvaluationLog(Base):
     query: Mapped[str] = mapped_column(Text, nullable=False)
     retrieved_docs: Mapped[list] = mapped_column(JSON, nullable=False)
     generated_output: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now_ist)
 
     session = relationship("AnalysisSession", back_populates="evaluation_log")
 
@@ -88,7 +89,7 @@ class ActionLog(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now_ist)
 
     session = relationship("AnalysisSession", back_populates="action_logs")
 
@@ -107,6 +108,6 @@ class SessionChatTurn(Base):
     faithfulness_corrected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     used_fallback: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     retrieval_diagnostics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=now_ist)
 
     session = relationship("AnalysisSession", back_populates="chat_turns")

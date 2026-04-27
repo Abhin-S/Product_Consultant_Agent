@@ -1,30 +1,205 @@
 {
-  "benchmark_name": "brand_pricing_core_v1",
+  "benchmark_name": "custom_sessions_brand_strategy_v1",
   "items": [
     {
-      "query": "What strategic pricing principles are highlighted in Tata Communications analysis for protecting long-term brand trust?",
-      "document_id": "Case_Study_Data/Brand Pricing/20250311060634_Tata-Communication-11032025-icici.pdf",
-      "reference_answer": "A trust-protective pricing strategy should avoid reactive discounting and anchor value to service reliability, enterprise outcomes, and quality signals. The brand should communicate why price reflects delivery confidence, not just cost. It should segment customer value clearly and maintain pricing discipline so that short-term volume actions do not erode long-term brand credibility."
+      "query": "Should we use a penetration pricing strategy or a premium skimming approach? Which strategy or approach is good for which brand?",
+      "document_id": "Penetration pricing vs skimming strategy/63.pdf",
+      "reference_output": {
+        "abstention_message": null,
+        "brand_diagnosis": "Choosing between penetration and skimming depends on brand objectives, differentiation, and buyer price sensitivity. Penetration suits fast-adoption goals in crowded markets, while skimming fits innovation-led or prestige brands with strong willingness-to-pay.",
+        "market_insight": "Penetration strategy tends to optimize reach and share when demand is elastic, whereas skimming optimizes early margins and premium signaling when the offer is distinct and defensible.",
+        "suggested_positioning": [
+          "Penetration: accessible, high-adoption, value-for-money.",
+          "Skimming: premium, exclusive, innovation-first.",
+          "Use phased pricing if product lifecycle supports migrating from skimming to broader tiers."
+        ],
+        "risks": [
+          "Penetration can reduce perceived quality if low price is interpreted as low value.",
+          "Skimming can slow adoption and restrict early demand to narrow segments."
+        ],
+        "opportunities": [
+          "Penetration can build share quickly and raise entry barriers for followers.",
+          "Skimming can capture strong early margins and reinforce premium brand equity."
+        ],
+        "final_positioning": "Apply strategy by brand context: penetration for mass-growth challenger brands, skimming for differentiated or status brands.",
+        "target_audience": "Decision-makers segmented by price elasticity, need urgency, and value sensitivity.",
+        "chosen_strategy": "Use a decision rule combining differentiation strength, competitive intensity, and elasticity before selecting penetration or skimming.",
+        "rejected_directions": [
+          "Uniform pricing strategy across all brand categories without market segmentation.",
+          "Price-only competition when strategic differentiation is available."
+        ],
+        "trade_offs": [
+          "Skimming improves unit economics but may limit early scale.",
+          "Penetration improves scale but may depress short-term ROI and brand premium perception."
+        ],
+        "actions": [
+          {
+            "type": "task",
+            "title": "Run elasticity and segment analysis",
+            "description": "Estimate willingness-to-pay bands and identify where low-price acquisition or premium extraction is viable.",
+            "priority": "high",
+            "decision_type": "pricing",
+            "impact": "high"
+          },
+          {
+            "type": "task",
+            "title": "Define strategy trigger conditions",
+            "description": "Set explicit criteria for when a brand should use penetration, skimming, or a phased hybrid model.",
+            "priority": "high",
+            "decision_type": "positioning",
+            "impact": "high"
+          }
+        ],
+        "confidence_score": 0.83,
+        "notion_page_content": "Penetration vs Skimming Plan\n- Penetration fits price-sensitive, high-competition categories targeting rapid scale.\n- Skimming fits differentiated, innovation-led, or prestige brands seeking margin and premium signaling.\n- Decide using elasticity, differentiation defensibility, and adoption goals.",
+        "database_metadata": {
+          "name": "Penetration vs skimming decision",
+          "brand_positioning": "Price strategy framework mapping brand type to penetration or skimming.",
+          "brand_risk_level": "Medium",
+          "confidence_score": 83,
+          "tags": [
+            "pricing",
+            "market-entry",
+            "positioning"
+          ]
+        }
+      }
     },
     {
-      "query": "How should Tata Motors style sales and distribution strategy support brand pricing power?",
-      "document_id": "Case_Study_Data/Brand Pricing/EFFECTIVE+SALES+AND+DISTRIBUTION+STRATEGIES+INSIGHTS+FROM+TATA+MOTORS.pdf",
-      "reference_answer": "Distribution strategy should reinforce pricing power by ensuring availability in the right channels, improving dealer execution quality, and maintaining a consistent brand experience. Better channel alignment reduces forced discounting and improves perceived value. Sales performance should be tied to brand-consistent execution, not only volume targets."
+      "query": "What exactly is 'brand equity' and how is it measured?",
+      "document_id": "Determinants_of_Brand_Equity_a_Blue_Prin.pdf",
+      "reference_output": {
+        "abstention_message": null,
+        "brand_diagnosis": "Brand equity is the incremental value a brand adds beyond functional product attributes and can be understood through consumer, financial, and strategic lenses.",
+        "market_insight": "Stronger equity increases pricing power, loyalty resilience, and future profit potential; weak equity increases commoditization risk.",
+        "suggested_positioning": [
+          "Consumer lens: incremental preference and willingness to choose the brand.",
+          "Economic lens: discounted future cash flows attributable to brand strength.",
+          "Strategic lens: difficult-to-replicate intangible advantage."
+        ],
+        "risks": [
+          "High awareness without trust or loyalty can overstate true equity.",
+          "Short-term promotions can inflate volume while weakening long-term equity signals."
+        ],
+        "opportunities": [
+          "Sustained equity supports premium pricing and margin stability.",
+          "Strong equity can reduce acquisition costs through higher advocacy and repeat behavior."
+        ],
+        "final_positioning": "Treat brand equity as a measurable strategic asset with linked consumer and financial indicators.",
+        "target_audience": "Brand managers, founders, and finance stakeholders evaluating long-term brand value creation.",
+        "chosen_strategy": "Use a balanced scorecard with perception, behavior, and financial metrics for periodic equity tracking.",
+        "rejected_directions": [
+          "Single-metric evaluation of equity based only on awareness.",
+          "Attributing all sales lift to brand without controlling for product and price effects."
+        ],
+        "trade_offs": [
+          "Deep equity measurement improves decision quality but requires data integration and cadence discipline.",
+          "Financial valuation models increase rigor but add estimation assumptions."
+        ],
+        "actions": [
+          {
+            "type": "task",
+            "title": "Define brand equity scorecard",
+            "description": "Track awareness, consideration, preference, loyalty, price premium, and share over time.",
+            "priority": "high",
+            "decision_type": "trust",
+            "impact": "high"
+          },
+          {
+            "type": "task",
+            "title": "Run periodic residual-value analysis",
+            "description": "Estimate incremental brand contribution after accounting for product attributes and promotions.",
+            "priority": "high",
+            "decision_type": "other",
+            "impact": "medium"
+          }
+        ],
+        "confidence_score": 0.82,
+        "notion_page_content": "Brand Equity Basics\n- Brand equity is incremental brand-driven value beyond product function.\n- Measure it across perception, behavior, and financial outcomes.\n- Use a recurring scorecard, not one-off vanity metrics.",
+        "database_metadata": {
+          "name": "Brand equity measurement model",
+          "brand_positioning": "Multi-dimensional framework to define and measure brand equity.",
+          "brand_risk_level": "Low",
+          "confidence_score": 82,
+          "tags": [
+            "brand-equity",
+            "measurement",
+            "valuation"
+          ]
+        }
+      }
     },
     {
-      "query": "From the Tata consumer preference study, what pricing and communication implications matter most for segment fit?",
-      "document_id": "Case_Study_Data/Brand Pricing/To_Study_Consumer_Preference_Towards_TAT.pdf",
-      "reference_answer": "Consumer preference insights should be translated into segment-specific value propositions and differentiated pricing bands. Communication should match what each segment values most, such as reliability, quality, or affordability, rather than using one generic message. Pricing and messaging must move together so each segment perceives a fair value exchange."
-    },
-    {
-      "query": "What portfolio and growth lessons from the Tata Group strategy report support sustainable brand pricing decisions?",
-      "document_id": "Case_Study_Data/Brand Pricing/Report_on_Tata_Group_and_Its_Growth_Stra.pdf",
-      "reference_answer": "Sustainable pricing across a group portfolio requires role clarity for each brand, disciplined positioning, and investment in long-term equity rather than short-term price cuts. Growth strategy should balance premium and value offerings without blurring brand meaning. Portfolio governance should protect differentiation so price remains a signal of strategic position."
-    },
-    {
-      "query": "What practical guidance do pricing studies suggest for balancing competitiveness and brand equity in B2B contexts?",
-      "document_id": "Case_Study_Data/Brand Pricing/IFC2252.pdf",
-      "reference_answer": "In B2B markets, firms should compete on total value delivered and proof of outcomes rather than headline price alone. Competitive response should be selective and evidence based, with clear guardrails against broad discounting. The best approach combines value-based pricing logic, transparent justification, and consistency across sales teams to preserve equity while staying competitive."
+      "query": "I am trying to open a few restaurants. My question is how to advertise my brand; whom should be my target audience primarily etc. I would like to get a structured plan on how to proceed with these openings.",
+      "document_id": "Brand Architecture and Portfolio Strateg/Brand_Architecture_A_Review.pdf",
+      "reference_output": {
+        "abstention_message": null,
+        "brand_diagnosis": "You need a multi-location launch playbook that sequences positioning, audience selection, channel activation, and feedback loops before scaling.",
+        "market_insight": "Restaurant launches succeed when buyer personas and location-level demand assumptions are validated early, and marketing is iterated through a measured test-learn cycle.",
+        "suggested_positioning": [
+          "Adopt clear concept-led positioning per restaurant format (value, family, premium, niche).",
+          "Use audience-first messaging by catchment demographics and intent occasions.",
+          "Balance local relevance with consistent master-brand standards."
+        ],
+        "risks": [
+          "Launching without validated personas can cause inefficient ad spend and weak conversion.",
+          "Single umbrella positioning across heterogeneous locations can blur fit and reduce relevance."
+        ],
+        "opportunities": [
+          "Digital analytics can rapidly improve targeting by age, location, and engagement behavior.",
+          "A structured GTM process can reduce early-stage failure risk and improve rollout confidence."
+        ],
+        "final_positioning": "Use a product-brand architecture with explicit concept positioning and local-market adaptations.",
+        "target_audience": "Primary targets should be defined per outlet through buyer personas combining income, age band, occasion, and neighborhood behavior.",
+        "chosen_strategy": "Execute a phased GTM: persona definition, value-messaging tests, channel mix optimization, then expansion gating.",
+        "rejected_directions": [
+          "Scaling to multiple openings before validating core audience-response fit.",
+          "Uniform campaign creative without location-level tailoring."
+        ],
+        "trade_offs": [
+          "Multi-brand or multi-concept architecture improves segmentation precision but increases creative and management overhead.",
+          "Rapid rollout captures market presence faster but raises execution risk versus phased expansion."
+        ],
+        "actions": [
+          {
+            "type": "task",
+            "title": "Build location-level buyer personas",
+            "description": "Define primary and secondary audiences for each opening using demographic, behavioral, and occasion data.",
+            "priority": "high",
+            "decision_type": "audience",
+            "impact": "high"
+          },
+          {
+            "type": "task",
+            "title": "Design 90-day launch calendar",
+            "description": "Sequence pre-launch awareness, launch-week conversion campaigns, and post-launch retention programs.",
+            "priority": "high",
+            "decision_type": "narrative",
+            "impact": "high"
+          },
+          {
+            "type": "task",
+            "title": "Set channel and KPI dashboard",
+            "description": "Track CAC, footfall conversion, repeat rate, and local campaign ROI to decide scale readiness.",
+            "priority": "high",
+            "decision_type": "other",
+            "impact": "high"
+          }
+        ],
+        "confidence_score": 0.9,
+        "notion_page_content": "Restaurant Openings Structured Plan\n- Phase 1: Define outlet personas, value proposition, and local positioning.\n- Phase 2: Run digital and local activation pilots; test messaging and offers.\n- Phase 3: Scale openings only after KPI thresholds (footfall conversion, repeat rate, CAC payback) are met.",
+        "database_metadata": {
+          "name": "Restaurant launch GTM plan",
+          "brand_positioning": "Persona-driven multi-location restaurant go-to-market strategy.",
+          "brand_risk_level": "Medium",
+          "confidence_score": 90,
+          "tags": [
+            "gtm",
+            "restaurant-launch",
+            "audience"
+          ]
+        }
+      }
     }
   ]
 }

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
@@ -10,6 +8,7 @@ from ingestion.loader import Document
 from retrieval.fallback.news_client import fetch_news_articles
 from retrieval.fallback.news_filter import filter_articles
 from retrieval.retriever import RetrievedDoc
+from utils.datetime_utils import now_ist
 
 
 def _normalize(vec: np.ndarray) -> np.ndarray:
@@ -72,7 +71,7 @@ async def retrieve_dynamic_chunks(
 
     chunks = chunk_documents(article_docs, chunk_size=400, overlap=0, doc_type="dynamic")
 
-    inserted_at = datetime.now(timezone.utc).isoformat()
+    inserted_at = now_ist().isoformat()
     for chunk in chunks:
         chunk.doc_type = "dynamic"
         chunk.inserted_at = inserted_at

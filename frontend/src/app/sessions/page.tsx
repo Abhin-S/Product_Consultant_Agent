@@ -4,6 +4,7 @@ import { type MouseEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import api from "../../lib/axios";
+import { formatDateTimeIST } from "../../lib/datetime";
 import { Session } from "../../lib/types";
 import useRequireAuth from "../../lib/useRequireAuth";
 
@@ -124,7 +125,7 @@ export default function SessionsPage() {
                   className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
                   onClick={() => router.push(`/sessions/${session.id}`)}
                 >
-                  <td className="px-4 py-3">{new Date(session.created_at).toLocaleString()}</td>
+                  <td className="px-4 py-3">{formatDateTimeIST(session.created_at)}</td>
                   <td className="px-4 py-3">{session.idea_text.slice(0, 60)}</td>
                   <td className="px-4 py-3">{(session.confidence_score ?? 0).toFixed(2)}</td>
                   <td className="px-4 py-3">{formatEvalStatus(session.ragas?.status)}</td>

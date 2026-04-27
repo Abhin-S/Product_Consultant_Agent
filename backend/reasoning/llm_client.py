@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 import json
 import logging
 import re
@@ -115,32 +116,211 @@ def _parse_json_payload(text: str):
     raise ValueError(f"No valid JSON payload found in model response: {last_error}")
 
 
-def _build_context_text(bundle: ContextBundle) -> str:
-    lines: list[str] = []
-    for idx, doc in enumerate(bundle.docs, start=1):
-        meta_parts = [
-            f"source={doc.source}",
-            f"doc_type={doc.doc_type}",
-            f"chunk_type={doc.chunk_type}",
-            f"similarity={doc.similarity_score:.4f}",
-        ]
-        if doc.source_rel:
-            meta_parts.append(f"source_rel={doc.source_rel}")
-        if doc.topic:
-            meta_parts.append(f"topic={doc.topic}")
-        if doc.subtopic:
-            meta_parts.append(f"subtopic={doc.subtopic}")
-        if doc.section:
-            meta_parts.append(f"section={doc.section}")
-        if doc.pages:
-            meta_parts.append(f"pages={doc.pages}")
-        if doc.has_table:
-            meta_parts.append("has_table=true")
+_QUERY_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "in",
+    "is", "it", "its", "of", "on", "or", "that", "the", "this", "to", "what", "when",
+    "where", "which", "who", "why", "with", "would", "should", "could", "can",
+}
 
-        lines.append(
-            f"[{idx}] {' '.join(meta_parts)}\n{doc.text}"
+
+def _normalize_text(value: str) -> str:
+    return " ".join((value or "").split()).strip()
+
+
+def _extract_terms(value: str, max_terms: int = 14) -> list[str]:
+    tokens = re.findall(r"[A-Za-z0-9]+", (value or "").lower())
+    seen: set[str] = set()
+    terms: list[str] = []
+    for token in tokens:
+        if len(token) <= 2 or token in _QUERY_STOPWORDS:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        terms.append(token)
+        if len(terms) >= max_terms:
+            break
+    return terms
+
+
+def _classify_query_intent(query: str) -> str:
+    text = _normalize_text(query).lower()
+    if not text:
+        return "analytical"
+
+    if any(marker in text for marker in ("what is", "what are", "who is", "when did", "where is", "define ")):
+        return "factual"
+    if any(marker in text for marker in ("implication", "scenario", "if ", "might", "could", "trade-off", "tradeoff")):
+        return "inferential"
+    return "analytical"
+
+
+def _extract_entity_hints(query: str) -> list[str]:
+    normalized = _normalize_text(query)
+    entities: list[str] = []
+
+    lowered = normalized.lower()
+    if re.search(r"\btata communications?\b", lowered):
+        entities.append("tata communication")
+    if re.search(r"\btata comms?\b", lowered):
+        entities.append("tata communication")
+
+    title_case_entities = re.findall(r"(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", normalized)
+    for entity in title_case_entities:
+        compact = " ".join(entity.split()).strip().lower()
+        if compact and compact not in entities:
+            entities.append(compact)
+
+    return entities[:6]
+
+
+def _build_context_text(bundle: ContextBundle) -> str:
+    grouped: dict[str, list] = defaultdict(list)
+    group_order: list[str] = []
+
+    for doc in bundle.docs:
+        source_key = (doc.source_rel or doc.source or "unknown").strip()
+        if source_key not in grouped:
+            group_order.append(source_key)
+        grouped[source_key].append(doc)
+
+    lines: list[str] = []
+    source_idx = 0
+    for source_key in group_order:
+        docs = grouped[source_key]
+        if not docs:
+            continue
+
+        source_idx += 1
+        lead = docs[0]
+        doc_header_parts = [
+            f"source={lead.source}",
+            f"source_rel={lead.source_rel or source_key}",
+            f"topic={lead.topic or 'n/a'}",
+            f"subtopic={lead.subtopic or 'n/a'}",
+            f"doc_type={lead.doc_type}",
+        ]
+        lines.append(f"[Document {source_idx}] {' '.join(doc_header_parts)}")
+
+        ranked_docs = sorted(
+            docs,
+            key=lambda item: (float(item.similarity_score), float(item.rerank_score or 0.0)),
+            reverse=True,
         )
+
+        for chunk_idx, doc in enumerate(ranked_docs, start=1):
+            chunk_meta = [
+                f"chunk_type={doc.chunk_type}",
+                f"similarity={doc.similarity_score:.4f}",
+            ]
+            if doc.rerank_score is not None:
+                chunk_meta.append(f"rerank={doc.rerank_score:.4f}")
+            if doc.section:
+                chunk_meta.append(f"section={doc.section}")
+            if doc.pages:
+                chunk_meta.append(f"pages={doc.pages}")
+            if doc.has_table:
+                chunk_meta.append("has_table=true")
+
+            lines.append(f"  [Chunk {source_idx}.{chunk_idx}] {' '.join(chunk_meta)}\n{doc.text}")
+
     return "\n\n".join(lines)
+
+
+def _retrieval_confidence_signal(context_bundle: ContextBundle) -> float:
+    similarities = [max(0.0, min(1.0, float(doc.similarity_score))) for doc in context_bundle.docs]
+    if not similarities:
+        return 0.0
+
+    top_n = min(4, len(similarities))
+    top_mean = mean(sorted(similarities, reverse=True)[:top_n])
+    strong_docs = len([score for score in similarities if score >= settings.CONFIDENCE_THRESHOLD])
+    coverage = min(1.0, strong_docs / max(top_n, 1))
+    return float(max(0.0, min(1.0, (0.7 * top_mean) + (0.3 * coverage))))
+
+
+def _generation_confidence_signal(insight: InsightOutput) -> float:
+    if _clean_text(insight.abstention_message):
+        return 0.1
+
+    primary_fields = [
+        insight.brand_diagnosis,
+        insight.market_insight,
+        insight.final_positioning,
+        insight.target_audience,
+        insight.chosen_strategy,
+    ]
+    filled = len([field for field in primary_fields if _clean_text(field)])
+    fill_ratio = filled / len(primary_fields)
+
+    evidence_blob = " ".join(
+        [
+            _clean_text(insight.brand_diagnosis),
+            _clean_text(insight.market_insight),
+            " ".join(_clean_text_list(insight.suggested_positioning, max_items=6, max_len=180)),
+            " ".join(_clean_text_list(insight.risks, max_items=6, max_len=180)),
+            " ".join(_clean_text_list(insight.opportunities, max_items=6, max_len=180)),
+        ]
+    )
+    evidence_tags = len(re.findall(r"\[source=.*?\]", evidence_blob, flags=re.IGNORECASE))
+    evidence_signal = min(1.0, evidence_tags / 3.0)
+
+    return float(max(0.0, min(1.0, (0.7 * fill_ratio) + (0.3 * evidence_signal))))
+
+
+def _calibrate_confidence(
+    context_bundle: ContextBundle,
+    insight: InsightOutput,
+    *,
+    grounding_verdict: str | None = None,
+) -> float:
+    retrieval_signal = _retrieval_confidence_signal(context_bundle)
+
+    if _clean_text(insight.abstention_message):
+        return float(max(0.05, min(0.25, retrieval_signal * 0.45)))
+
+    generation_signal = _generation_confidence_signal(insight)
+    confidence = (0.75 * retrieval_signal) + (0.25 * generation_signal)
+
+    if grounding_verdict == "partial":
+        confidence *= 0.9
+    elif grounding_verdict == "not_grounded":
+        confidence *= 0.35
+
+    return float(max(0.0, min(1.0, confidence)))
+
+
+def _should_retry_after_abstention(idea: str, context_bundle: ContextBundle, insight: InsightOutput) -> bool:
+    if not _clean_text(insight.abstention_message):
+        return False
+
+    metrics = _context_coverage_metrics(context_bundle)
+    doc_count = int(metrics["doc_count"])
+    strong_doc_count = int(metrics["strong_doc_count"])
+    max_similarity = float(metrics["max_similarity"])
+
+    if doc_count < 2:
+        return False
+    if strong_doc_count <= 0 and max_similarity < settings.CONFIDENCE_THRESHOLD:
+        return False
+
+    entity_hints = _extract_entity_hints(idea)
+    if not entity_hints:
+        return True
+
+    context_head = " ".join(
+        [
+            (doc.source_rel or doc.source or "")
+            + " "
+            + (doc.topic or "")
+            + " "
+            + (doc.subtopic or "")
+            + " "
+            + (doc.text[:300] if doc.text else "")
+            for doc in context_bundle.docs
+        ]
+    ).lower()
+    return any(entity in context_head for entity in entity_hints)
 
 
 def _context_coverage_metrics(context_bundle: ContextBundle) -> dict[str, float | int]:
@@ -593,8 +773,12 @@ async def generate_insight(
     schema_json = json.dumps(InsightOutput.model_json_schema(), indent=2)
     system_prompt = SYSTEM_PROMPT.format(schema=schema_json)
     context_text = _build_context_text(context_bundle)
+    query_intent = _classify_query_intent(idea)
+    entity_hints = _extract_entity_hints(idea)
     user_prompt = USER_PROMPT_TEMPLATE.format(
         idea=idea,
+        query_intent=query_intent,
+        entity_hints=(", ".join(entity_hints) if entity_hints else "none"),
         doc_count=len(context_bundle.docs),
         context=context_text,
         fallback_note=FALLBACK_NOTE if context_bundle.used_fallback else NO_FALLBACK_NOTE,
@@ -606,6 +790,7 @@ async def generate_insight(
     start = time.perf_counter()
     last_validation_error: Exception | None = None
     last_provider_error: Exception | None = None
+    over_abstention_retry_used = False
 
     for attempt in range(settings.LLM_MAX_RETRIES):
         composed_prompt = prompt
@@ -620,11 +805,16 @@ async def generate_insight(
             response_text = _extract_text(response)
             insight = InsightOutput.model_validate(_parse_json_payload(response_text))
 
-            confidence = mean([doc.similarity_score for doc in context_bundle.docs]) if context_bundle.docs else 0.0
-            if _clean_text(insight.abstention_message):
-                insight.confidence_score = float(max(0.0, min(0.2, confidence)))
-            else:
-                insight.confidence_score = float(max(0.0, min(1.0, confidence)))
+            if (not over_abstention_retry_used) and _should_retry_after_abstention(idea, context_bundle, insight):
+                corrections.append(
+                    "Your previous response abstained despite retrievable context. "
+                    "Regenerate a PARTIAL grounded answer using related evidence from the retrieved sources. "
+                    "Keep abstention_message null unless there is truly zero relevant evidence."
+                )
+                over_abstention_retry_used = True
+                continue
+
+            insight.confidence_score = _calibrate_confidence(context_bundle, insight)
             insight = _ensure_notion_format_outputs(idea, insight)
 
             latency_ms = (time.perf_counter() - start) * 1000
@@ -746,8 +936,7 @@ async def regenerate_grounded_insight(
             response_text = _extract_text(response)
             repaired = InsightOutput.model_validate(_parse_json_payload(response_text))
 
-            confidence = mean([doc.similarity_score for doc in context_bundle.docs]) if context_bundle.docs else 0.0
-            repaired.confidence_score = float(max(0.0, min(1.0, confidence)))
+            repaired.confidence_score = _calibrate_confidence(context_bundle, repaired)
             repaired = _ensure_notion_format_outputs(idea, repaired)
             return repaired
         except (ValidationError, json.JSONDecodeError, ValueError) as exc:
@@ -784,12 +973,18 @@ async def enforce_faithfulness(
     """
     verdict = await check_grounding(context_bundle, insight)
     if verdict != "not_grounded":
+        insight.confidence_score = _calibrate_confidence(context_bundle, insight, grounding_verdict=verdict)
         return insight, verdict, False
 
     repaired = await regenerate_grounded_insight(idea, context_bundle, insight)
     if repaired is not None:
         repaired_verdict = await check_grounding(context_bundle, repaired)
         if repaired_verdict in {"grounded", "partial"}:
+            repaired.confidence_score = _calibrate_confidence(
+                context_bundle,
+                repaired,
+                grounding_verdict=repaired_verdict,
+            )
             return repaired, repaired_verdict, True
 
     fallback = build_conservative_insight(idea, context_bundle)

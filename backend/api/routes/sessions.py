@@ -4,6 +4,7 @@ import asyncio
 import json
 from datetime import datetime
 from statistics import mean
+import re
 from typing import Any
 from uuid import UUID
 
@@ -282,6 +283,41 @@ def _build_chat_reasoning_query(
     return "\n".join(base)
 
 
+def _is_context_dependent_follow_up(message: str) -> bool:
+    normalized = " ".join((message or "").split()).strip().lower()
+    if not normalized:
+        return True
+
+    token_count = len(re.findall(r"[a-z0-9]+", normalized))
+    if token_count <= 6:
+        return True
+
+    if normalized.startswith(("what about", "how about", "and ", "also ", "more on", "expand", "elaborate")):
+        return True
+
+    if token_count < 14 and re.search(r"\b(it|this|that|these|those|they|them|its|their)\b", normalized):
+        return True
+
+    return False
+
+
+def _build_chat_retrieval_query(
+    idea_text: str,
+    recent_user_turns: list[str],
+    message: str,
+) -> tuple[str, str]:
+    current = message.strip()
+    if not _is_context_dependent_follow_up(current):
+        return current, "current_only"
+
+    retrieval_lines = [f"Original decision question: {idea_text.strip()}"]
+    if recent_user_turns:
+        retrieval_lines.append("Recent follow-up questions:")
+        retrieval_lines.extend(f"- {value}" for value in recent_user_turns)
+    retrieval_lines.append(f"Current follow-up question: {current}")
+    return "\n".join(retrieval_lines), "contextual"
+
+
 @router.get("/sessions")
 async def list_sessions(
     page: int = Query(default=1, ge=1),
@@ -475,12 +511,11 @@ async def chat_in_session(
 
     user_message = payload.message.strip()
     recent_user_turns = [turn.user_message.strip() for turn in existing_turns[-3:] if turn.user_message.strip()]
-    retrieval_lines = [f"Original decision question: {session.idea_text.strip()}"]
-    if recent_user_turns:
-        retrieval_lines.append("Recent follow-up questions:")
-        retrieval_lines.extend(f"- {value}" for value in recent_user_turns)
-    retrieval_lines.append(f"Current follow-up question: {user_message}")
-    retrieval_query = "\n".join(retrieval_lines)
+    retrieval_query, retrieval_query_mode = _build_chat_retrieval_query(
+        idea_text=session.idea_text,
+        recent_user_turns=recent_user_turns,
+        message=user_message,
+    )
 
     reasoning_query = _build_chat_reasoning_query(
         idea_text=session.idea_text,
@@ -552,6 +587,8 @@ async def chat_in_session(
             "coverage_metrics": coverage_metrics,
             "abstained": should_abstain,
             "abstain_reason": abstain_reason if should_abstain else None,
+            "retrieval_query_mode": retrieval_query_mode,
+            "retrieved_sources": sorted({doc.source_rel or doc.source for doc in context_bundle.docs}),
         }
     )
 

@@ -222,6 +222,7 @@ async def analyze_idea(
             "coverage_metrics": coverage_metrics,
             "abstained": should_abstain,
             "abstain_reason": abstain_reason if should_abstain else None,
+            "retrieved_sources": sorted({doc.source_rel or doc.source for doc in context_bundle.docs}),
         }
     )
 
