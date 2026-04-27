@@ -20,6 +20,73 @@ export interface SessionConversationMessage {
   content: string;
 }
 
+export interface RetrievalDiagnostics {
+  query_intent?: "factual" | "analytical" | "inferential" | string;
+  entity_hints?: string[];
+  query_variants?: string[];
+  query_domain?: string | null;
+  query_expansion_mode?: "llm_assisted" | "deterministic_fallback" | "disabled" | string;
+  relevance_grading_mode?: "llm_assisted" | "heuristic_fallback" | "disabled" | string;
+  retrieved_before_crag?: number;
+  retrieved_after_initial_crag?: number;
+  retrieved_after_crag?: number;
+  retrieved_after_rerank?: number;
+  retrieved_after_diversification?: number;
+  corrective_query_variants?: string[];
+  corrective_pass_used?: boolean;
+  guardrail_rescues?: number;
+  entity_docs_in_fused?: number;
+  entity_docs_after_crag?: number;
+  entity_docs_after_rerank?: number;
+  entity_coverage_required?: boolean;
+  entity_coverage_satisfied?: boolean;
+  domain_coverage_required?: boolean;
+  domain_coverage_satisfied?: boolean;
+  domain_aligned_docs_after_rerank?: number;
+  domain_mismatched_docs_after_rerank?: number;
+  domain_guardrail_triggered?: boolean;
+  answerability_score?: number;
+  answerability_satisfied?: boolean;
+  answerability_threshold?: number;
+  fallback_requested?: boolean;
+  fallback_attempted?: boolean;
+  fallback_used?: boolean;
+  news_api_configured?: boolean;
+  gnews_api_configured?: boolean;
+  fallback_articles_fetched?: number;
+  fallback_articles_surviving?: number;
+  source_diversity_count_after_rerank?: number;
+  dominant_source_after_rerank?: string;
+  dominant_source_share_after_rerank?: number;
+  child_context_docs?: number;
+  parent_context_docs?: number;
+  hybrid_retrieval_enabled?: boolean;
+  dense_candidates?: number;
+  lexical_candidates?: number;
+  max_retrieval_score?: number;
+  retrieved_sources?: string[];
+  retrieval_query_mode?: "current_only" | "contextual" | string;
+  coverage_metrics?: {
+    doc_count: number;
+    strong_doc_count: number;
+    max_similarity: number;
+    avg_similarity: number;
+    local_tokens: number;
+    dynamic_tokens: number;
+    total_tokens: number;
+    confidence_threshold: number;
+  };
+  abstained?: boolean;
+  abstain_reason?: string | null;
+  quota_safe_mode_active?: boolean;
+  quota_safe_mode_scope?: "retrieval" | "reasoning" | "both" | string | null;
+  quota_safe_mode_message?: string | null;
+  quota_hit_in_retrieval_helpers?: boolean;
+  quota_hit_in_reasoning?: boolean;
+  critical_functions_temporarily_degraded?: string[];
+  retrieval_quota_retry_after_seconds?: number;
+}
+
 export interface SessionChatTurn {
   id: string;
   user_message: string;
@@ -270,6 +337,9 @@ export interface SessionDetail {
   created_at: string;
   conversation?: SessionConversationMessage[];
   chat_turns?: SessionChatTurn[];
+  tier1_metrics?: Tier1Metrics | null;
+  retrieval_diagnostics?: RetrievalDiagnostics;
+  retrieved_sources?: string[];
   evaluation_log: EvaluationLog | null;
   action_logs: SessionActionLog[];
 }
@@ -290,33 +360,6 @@ export interface SessionChatResponse {
   chat_turn?: SessionChatTurn;
   evaluation_log?: EvaluationLog | null;
   action_logs?: SessionActionLog[];
-  retrieval_diagnostics?: {
-    query_intent?: "factual" | "analytical" | "inferential" | string;
-    entity_hints?: string[];
-    query_variants: string[];
-    retrieved_before_crag: number;
-    retrieved_after_crag: number;
-    retrieved_after_rerank?: number;
-    retrieved_after_diversification?: number;
-    parent_context_docs?: number;
-    hybrid_retrieval_enabled?: boolean;
-    dense_candidates?: number;
-    lexical_candidates?: number;
-    max_retrieval_score?: number;
-    retrieved_sources?: string[];
-    retrieval_query_mode?: "current_only" | "contextual" | string;
-    coverage_metrics?: {
-      doc_count: number;
-      strong_doc_count: number;
-      max_similarity: number;
-      avg_similarity: number;
-      local_tokens: number;
-      dynamic_tokens: number;
-      total_tokens: number;
-      confidence_threshold: number;
-    };
-    abstained?: boolean;
-    abstain_reason?: string | null;
-  };
+  retrieval_diagnostics?: RetrievalDiagnostics;
   conversation: SessionConversationMessage[];
 }
